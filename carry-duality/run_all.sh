@@ -8,3 +8,7 @@ python3 carry_chain.py
 ./scan 2 3 40000 10000
 for pq in "2 5" "3 5" "2 7" "3 7" "5 7" "2 11" "7 11"; do ./scan $pq 12000 12000; done
 for pq in "2 3" "2 5" "3 5" "2 7" "3 7" "5 7" "2 11" "7 11"; do ./random_model $pq 8000 4000; done
+gcc -O2 -o clt clt.c -lm
+python3 predict.py
+./clt 2 3 40000 1000
+for pq in "2 5" "3 5" "2 7" "3 7" "5 7" "2 11" "7 11"; do ./clt $pq 12000 500; done
