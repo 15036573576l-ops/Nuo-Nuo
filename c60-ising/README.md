@@ -1,6 +1,40 @@
-# C60 反铁磁伊辛模型：h = J 时的基态简并度
+# C60 反铁磁伊辛模型：h = J 时的基态简并度，以及横场下的劈裂
 
-## 题目
+## 终极版题目（加横场）
+
+> Antiferromagnetic Ising model on the C60 buckyball graph (90 edges) in a longitudinal field equal to the
+> exchange, plus a weak transverse field:
+> H = J Σ_{edges} σ^z_i σ^z_j − J Σ_i σ^z_i − Γ Σ_i σ^x_i, J > 0.
+> As Γ → 0⁺, E_0 = E_cl − aΓ − bΓ²/J + O(Γ³). Find a and b to 6 significant figures.
+
+**答案：a = 10.9298（10.929792851734），b = 12.6326（12.632563540645）**，E_cl = −66J。
+
+要过的几层：
+
+1. 先看出 h = J 时 M = 0..12 共 7 个扇区一起简并，经典基态有 3473405 个（就是下面原版题的答案）。只算 M = 0 和 M = 12 两个平台的话，两组之间单翻一个自旋连不起来，后面全错。
+2. 一阶简并微扰：a 是基态流形上"单自旋翻转图"邻接矩阵的最大本征值。这个图有 3473405 个点、17375280 条边，分成一个 3473400 点的大分支和 5 个冻结态（都是 M = 12 的最大独立集，单翻任何一个自旋都会离开流形）。第二大本征值 10.908577401144 是三重简并，和 a 只差 0.021。
+3. 二阶：b = Σ_k (Σ_{s~k} ψ_s)² / (E_k − E_cl)，ψ 是 Perron 向量，k 跑遍从流形单翻一次能到的激发态，共 157994700 个。
+4. 一阶基态里 ⟨M⟩ = 6.0934。
+
+验证：
+
+- `enum_gs.py`：后向 DP 给出最优补全值，前向逐层筛选，枚举全部 3473405 个经典基态，各扇区个数和态密度逐项一致。
+- `flipgraph.py`、`perron_check.py`：建翻转图，ARPACK 求本征值，残差 4.6×10⁻¹⁴。本征向量在大分支上处处为正，由 Perron–Frobenius 定理，a 就是谱半径。
+- `pt2.py` + `check_ed.py`：同一套微扰公式，在小的 3 正则图上和完整量子精确对角化（12 个 Γ 点拟合 E_0(Γ)）对比：
+
+  | 图 | PT a | ED a | PT b | ED b |
+  |---|---|---|---|---|
+  | 截角四面体 (12) | 3.8346758121 | 3.8346758122 | 2.8842508368 | 2.8842508235 |
+  | 随机 3 正则 n=16 seed 3 | 3.5988139406 | 3.5988139399 | 3.4677432960 | 3.4677437141 |
+  | 随机 3 正则 n=18 seed 2 | 3.5377522556 | 3.5377522556 | 3.7938057108 | 3.7938057160 |
+  | 随机 3 正则 n=18 seed 4 | 2.9196458116 | 2.9196458115 | 3.7521354790 | 3.7521354822 |
+- `pt2_big.py` + `test_bucket.py`：C60 规模用的分桶求和程序，在 3 个图上和 `pt2.py` 逐位相同。
+
+运行：`python3 enum_gs.py && python3 pt2_big.py`（约 10 分钟，内存约 6 GB）。
+
+---
+
+## 原版题目
 
 > Classical antiferromagnetic Ising model on the C60 buckyball graph (60 vertices, 90 edges):
 > H = J Σ_{edges} s_i s_j − h Σ_i s_i, with s_i = ±1 and J > 0. How many ground states are there at h = J?
