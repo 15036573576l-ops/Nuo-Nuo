@@ -1,0 +1,337 @@
+<title>糯糯战记 英雄图鉴</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&family=Noto+Sans+SC:wght@400;500;700&family=Silkscreen:wght@400;700&display=swap">
+<style>
+/* 布局：左侧梯队标签 + 右侧英雄格子的天梯表；下方是选中英雄的战场预览和属性卡。单一夜战配色。 */
+:root {
+  color-scheme: dark;
+  --bg: #121729;
+  --panel: #1a2140;
+  --panel-2: #222b52;
+  --line: #2e3866;
+  --ink: #ece6d6;
+  --ink-dim: #9aa2c4;
+  --gold: #f2c14e;
+  --t0: #ff5b5b;
+  --t05: #ff9f43;
+  --t1: #b57bff;
+  --t2: #4fa3ff;
+  --t3: #8b93b3;
+  --hp: #ef5d6f;
+  --atk: #f2c14e;
+  --spd: #6fe0b0;
+  --rng: #6fb8ff;
+  --font-display: "ZCOOL QingKe HuangYou", "Noto Sans SC", system-ui, sans-serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-num: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: grid; gap: 28px; }
+header h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(34px, 7vw, 56px);
+  line-height: 1.05;
+  margin: 0;
+  letter-spacing: 0.02em;
+  text-wrap: balance;
+}
+header h1 span { color: var(--gold); }
+header p { margin: 8px 0 0; color: var(--ink-dim); max-width: 62ch; }
+
+/* 天梯表 */
+.tierlist { border-top: 3px solid var(--line); }
+.tier { display: grid; grid-template-columns: 72px 1fr; border-bottom: 3px solid var(--line); }
+.tier-label {
+  font-family: var(--font-num); font-weight: 700; font-size: 26px;
+  display: grid; place-items: center; border-right: 3px solid var(--line);
+  color: var(--tc);
+}
+.tier-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; min-width: 0; }
+.card {
+  width: 112px; padding: 0; border: 2px solid color-mix(in srgb, var(--tc) 55%, var(--line));
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  color: var(--ink); cursor: pointer; display: grid; font: inherit; text-align: center;
+  transition: transform .12s ease, border-color .12s ease;
+}
+.card:hover, .card:focus-visible { transform: translateY(-2px); border-color: var(--tc); outline: none; }
+.card[aria-pressed="true"] { border-color: var(--tc); box-shadow: 0 0 0 2px var(--tc), 0 6px 18px -6px var(--tc); }
+.card canvas { width: 108px; height: 112px; display: block; image-rendering: pixelated; }
+.card .nm { font-size: 13px; font-weight: 700; padding: 4px 2px 0; }
+.card .pw { font-family: var(--font-num); font-size: 11px; color: var(--ink-dim); padding-bottom: 6px; }
+
+/* 详情 */
+.detail { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.stage { background: var(--panel); border: 2px solid var(--line); }
+.stage canvas { width: 100%; aspect-ratio: 520 / 260; display: block; image-rendering: pixelated; max-width: 100%; }
+.modes { display: flex; gap: 0; border-top: 2px solid var(--line); }
+.modes button {
+  flex: 1; background: none; border: 0; border-right: 2px solid var(--line); color: var(--ink-dim);
+  font: 500 14px var(--font-body); padding: 10px 4px; cursor: pointer;
+}
+.modes button:last-child { border-right: 0; }
+.modes button[aria-pressed="true"] { color: var(--bg); background: var(--gold); }
+.modes button:focus-visible { outline: 2px solid var(--gold); outline-offset: -4px; }
+
+.info { display: grid; gap: 14px; min-width: 0; }
+.info .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.badge { font-family: var(--font-num); font-weight: 700; font-size: 14px; color: var(--bg); background: var(--tc); padding: 1px 8px; }
+.info h2 { font-family: var(--font-body); font-weight: 700; font-size: 30px; margin: 0; line-height: 1.1; }
+.info .sub { color: var(--ink-dim); font-size: 14px; }
+.lore { margin: 0; color: var(--ink-dim); font-style: italic; }
+.stats { display: grid; gap: 7px; }
+.stat { display: grid; grid-template-columns: 64px 1fr 58px; align-items: center; gap: 10px; font-size: 13px; }
+.stat .bar { height: 8px; background: var(--line); position: relative; }
+.stat .bar i { position: absolute; inset: 0 auto 0 0; background: var(--c); }
+.stat b { font-family: var(--font-num); font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; }
+.power { display: flex; align-items: baseline; justify-content: space-between; border-top: 2px solid var(--line); padding-top: 10px; }
+.power span { color: var(--ink-dim); font-size: 13px; }
+.power b { font-family: var(--font-num); font-size: 28px; color: var(--gold); }
+.skill { background: var(--panel); border: 2px solid var(--line); padding: 12px 14px; }
+.skill h3 { margin: 0 0 4px; font-size: 16px; display: flex; justify-content: space-between; gap: 8px; }
+.skill h3 small { font-family: var(--font-num); font-weight: 400; color: var(--ink-dim); font-size: 12px; }
+.skill p { margin: 0; font-size: 14px; }
+
+footer { color: var(--ink-dim); font-size: 13px; border-top: 2px solid var(--line); padding-top: 14px; display: grid; gap: 6px; }
+footer a { color: var(--gold); }
+
+@media (max-width: 760px) {
+  .detail { grid-template-columns: 1fr; }
+  .tier { grid-template-columns: 48px 1fr; }
+  .tier-label { font-size: 18px; }
+  .card { width: calc((100% - 16px) / 3); }
+  .card canvas { width: 100%; height: auto; aspect-ratio: 108 / 112; }
+}
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>糯糯战记 <span>英雄图鉴</span></h1>
+    <p>20 位原创英雄，按强度分成五个梯队。点一下英雄看他的待机、行走、攻击和受击动作；把鼠标放在格子上可以直接看攻击动作。</p>
+  </header>
+
+  <section class="tierlist" id="tierlist" aria-label="英雄强度排行"></section>
+
+  <section class="detail" aria-live="polite">
+    <div class="stage">
+      <canvas id="stage" width="520" height="260" aria-label="英雄动作预览"></canvas>
+      <div class="modes" role="group" aria-label="动作">
+        <button id="m-idle" data-mode="idle" aria-pressed="false">待机</button>
+        <button id="m-run" data-mode="run" aria-pressed="false">行走</button>
+        <button id="m-attack" data-mode="attack" aria-pressed="true">攻击</button>
+        <button id="m-hit" data-mode="hit" aria-pressed="false">受击</button>
+      </div>
+    </div>
+    <div class="info" id="info"></div>
+  </section>
+
+  <footer>
+    <div>综合战力 = √(生命 × 每秒伤害) × (1 + 射程 / 400) + 技能分。这是图鉴里的粗略估算，真正的平衡要靠试玩来调。</div>
+    <div>角色与武器像素图来自 <a href="https://0x72.itch.io/dungeontileset-ii" target="_blank" rel="noopener">0x72 DungeonTileset II</a>，CC0 协议（公有领域，可自由使用和修改）。英雄名字、设定和数值为原创。</div>
+  </footer>
+</div>
+
+<script>/*SPRITES*/</script>
+<script>/*HEROES*/</script>
+<script>/*RENDER*/</script>
+<script>
+(function () {
+  const TIERS = [
+    ['T0', '--t0'], ['T0.5', '--t05'], ['T1', '--t1'], ['T2', '--t2'], ['T3', '--t3'],
+  ];
+  const H = window.HEROES;
+  const R = window.SpriteRender;
+  const MAX = { hp: 2400, dps: 140, range: 260, speed: 60 };
+  let selected = H[0];
+  let mode = 'attack';
+  const cards = [];
+
+  function tierVar(t) { return TIERS.find((x) => x[0] === t)[1]; }
+
+  // 天梯表
+  const list = document.getElementById('tierlist');
+  for (const [t, v] of TIERS) {
+    const row = document.createElement('div');
+    row.className = 'tier';
+    row.style.setProperty('--tc', `var(${v})`);
+    row.innerHTML = `<div class="tier-label">${t}</div><div class="tier-row"></div>`;
+    const inner = row.querySelector('.tier-row');
+    for (const h of H.filter((x) => x.tier === t)) {
+      const b = document.createElement('button');
+      b.className = 'card';
+      b.id = 'hero-' + h.id;
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = `<canvas width="108" height="112"></canvas><div class="nm">${h.name}</div><div class="pw">${heroPower(h)}</div>`;
+      b.title = `${h.title} ${h.name}`;
+      const cv = b.querySelector('canvas');
+      const c = { hero: h, el: b, ctx: cv.getContext('2d'), cv, hover: false };
+      b.addEventListener('mouseenter', () => (c.hover = true));
+      b.addEventListener('mouseleave', () => (c.hover = false));
+      b.addEventListener('click', () => select(h));
+      cards.push(c);
+      inner.appendChild(b);
+    }
+    list.appendChild(row);
+  }
+
+  // 动作切换
+  document.querySelectorAll('.modes button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      mode = btn.dataset.mode;
+      document.querySelectorAll('.modes button').forEach((x) => x.setAttribute('aria-pressed', String(x === btn)));
+      shots.length = 0;
+    });
+  });
+
+  function bar(label, val, max, color, shown) {
+    const pct = Math.min(100, (val / max) * 100);
+    return `<div class="stat"><span>${label}</span><div class="bar"><i style="width:${pct}%;--c:var(${color})"></i></div><b>${shown}</b></div>`;
+  }
+
+  function select(h) {
+    selected = h;
+    shots.length = 0;
+    cards.forEach((c) => c.el.setAttribute('aria-pressed', String(c.hero === h)));
+    const info = document.getElementById('info');
+    info.style.setProperty('--tc', `var(${tierVar(h.tier)})`);
+    const dps = h.atk * h.aspd;
+    info.innerHTML = `
+      <div class="head"><span class="badge">${h.tier}</span><span class="sub">${h.title} · ${h.role}</span></div>
+      <h2>${h.name}</h2>
+      <p class="lore">${h.lore}</p>
+      <div class="stats">
+        ${bar('生命', h.hp, MAX.hp, '--hp', h.hp)}
+        ${bar('攻击', h.atk, 140, '--atk', h.atk)}
+        ${bar('每秒伤害', dps, MAX.dps, '--atk', Math.round(dps))}
+        ${bar('射程', h.range, MAX.range, '--rng', h.range)}
+        ${bar('移速', h.speed, MAX.speed, '--spd', h.speed)}
+      </div>
+      <div class="skill"><h3>${h.skill.name}<small>CD ${h.skill.cd}s</small></h3><p>${h.skill.desc}</p></div>
+      <div class="power"><span>综合战力</span><b>${heroPower(h)}</b></div>`;
+  }
+
+  // 预览舞台
+  const stage = document.getElementById('stage');
+  const sctx = stage.getContext('2d');
+  const shots = [];
+  let lastRelease = false;
+
+  function fitCanvas(cv, w, h) {
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    return ctx;
+  }
+
+  function drawGround(ctx, w, h, scroll) {
+    ctx.fillStyle = '#1a2140';
+    ctx.fillRect(0, 0, w, h);
+    // 远景城墙
+    ctx.fillStyle = '#1f2850';
+    for (let x = -((scroll * 0.3) % 40); x < w; x += 40) ctx.fillRect(x, h - 120, 30, 60);
+    // 地面砖
+    const gy = h - 50;
+    ctx.fillStyle = '#2a2f4d';
+    ctx.fillRect(0, gy, w, 50);
+    ctx.fillStyle = '#343a5e';
+    for (let x = -(scroll % 32); x < w; x += 32) ctx.fillRect(x, gy, 30, 4);
+    ctx.fillStyle = '#23284a';
+    for (let x = -((scroll + 16) % 32); x < w; x += 32) ctx.fillRect(x, gy + 18, 30, 3);
+    return gy;
+  }
+
+  const t0 = performance.now();
+  let prevT = 0;
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    const dt = Math.min(0.05, t - prevT);
+    prevT = t;
+
+    // 卡片
+    for (const c of cards) {
+      const ctx = fitCanvas(c.cv, 108, 112);
+      ctx.clearRect(0, 0, 108, 112);
+      const [w, h] = R.spriteSize(c.hero);
+      const s = w >= 32 ? 2.6 : (h <= 16 ? 4 : 3.2);
+      R.drawHero(ctx, c.hero, c.hover ? 'attack' : 'idle', t + c.hero.hp * 0.001, 50, 104, s);
+    }
+
+    // 舞台
+    const W = 520, Hh = 260;
+    const ctx = fitCanvas(stage, W, Hh);
+    const scroll = mode === 'run' ? t * selected.speed * 2.2 : 0;
+    const gy = drawGround(ctx, W, Hh, scroll);
+    const [sw, sh] = R.spriteSize(selected);
+    const s = sw >= 32 ? 4.4 : 5.5;
+    const hx = 150;
+    const res = R.drawHero(ctx, selected, mode, t, hx, gy + 6, s);
+
+    // 靶子：攻击时站在射程位置
+    if (mode === 'attack') {
+      const ranged = selected.range > 80;
+      const tx = ranged ? 470 : hx + (sw * s) / 2 + 40;
+      ctx.fillStyle = '#5b4a3a';
+      ctx.fillRect(tx - 4, gy - 60, 8, 66);
+      ctx.fillStyle = '#c9a36a';
+      ctx.fillRect(tx - 18, gy - 72, 36, 26);
+      ctx.fillStyle = '#ef5d6f';
+      ctx.fillRect(tx - 6, gy - 65, 12, 12);
+
+      if (res.release && !lastRelease && ranged) {
+        shots.push({ x: res.muzzle[0], y: res.muzzle[1], tx, ty: gy - 59, kind: selected.attack, color: selected.bolt || '#fff', life: 0 });
+      }
+      lastRelease = !!res.release;
+    }
+
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const p = shots[i];
+      p.life += dt;
+      const sp = p.kind === 'bow' ? 620 : 380;
+      const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
+      if (d < sp * dt) { shots.splice(i, 1); continue; }
+      p.x += (dx / d) * sp * dt; p.y += (dy / d) * sp * dt;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      if (p.kind === 'bow') {
+        const a = R.img('weapon_arrow');
+        ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
+        ctx.scale(3, 3);
+        ctx.drawImage(a, -a.naturalWidth / 2, -a.naturalHeight / 2);
+      } else if (p.kind === 'throw') {
+        const a = R.img('weapon_' + selected.weapon);
+        ctx.rotate(p.life * 18);
+        ctx.scale(3.5, 3.5);
+        if (a) ctx.drawImage(a, -a.naturalWidth / 2, -a.naturalHeight / 2);
+        else { ctx.fillStyle = p.color; ctx.fillRect(-2, -2, 4, 4); }
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = 0.35;
+        ctx.fillRect(-10, -10, 20, 20);
+        ctx.globalAlpha = 1;
+        ctx.fillRect(-6, -6, 12, 12);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-2, -2, 4, 4);
+      }
+      ctx.restore();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  R.preload().then(() => {
+    select(selected);
+    requestAnimationFrame(frame);
+  });
+})();
+</script>
