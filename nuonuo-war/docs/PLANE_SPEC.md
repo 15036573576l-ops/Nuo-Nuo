@@ -247,3 +247,30 @@ projectile = { sprite, side, el, x0, y0, x1, y1, h0, tgt, homing, t, dur, done, 
 - 逻辑（engine、combat、ai）不碰 DOM 和 canvas。
 - 不引入依赖。
 - 提交信息、代码注释、文档里不写模型名。注释用中文，风格跟现有代码一致。
+
+## 十七、承接远端 bee3ee3（review 之后加的内容）
+
+改写的基线必须是远端最新版本，下面这些功能要保留并移植到平面引擎，不能丢：
+
+1. **作弊菜单**（`src/game/cheat-ui.js`，C 键或右上角“作弊”）。
+   - 界面端的设置 `cfg` 跨局保留，每开一局复制进新引擎的 `eng.cheats`。
+   - `eng.cheats` 字段：`infiniteGold, noCd, noSupply, aiOff, satanNoCd`（布尔）；`incomeMul[2], dmgMul[2], invuln[2], godMode[2]`（按阵营）。默认全关，不影响无头测试。
+   - `eng.setCrystal(side, hp, maxHp)`：水晶血量和上限，上限从 `rules.map.crystalHp` 读。
+   - 菜单依赖 `window.GameUI.state.eng`，所以 `ui.js` 的 `GameUI` 全局要保留。
+   - 旧代码里 `R.lane.crystalHp` 要改成 `R.map.crystalHp`。
+2. **撒旦**（`src/special.js` 的 `SPECIAL_UNITS`，只有玩家能出：`playerOnly`；出兵栏最后一格；X 键）。
+   - 属性：2 万血、重甲、魔法溅射 130、`ccImmune`、`scale: 1.2`、`tags: ['giant']`。
+   - 被动：免疫眩晕、冻结、定身、寒霜、击退、易伤、衰弱；炼狱光环（200 范围每 0.5 秒 30 火伤 + 1 层灼烧，`satanAura`）；横扫（每下溅射 + 3 层灼烧 + 衰弱）；不灭（第一次死亡原地复活，回满血，无敌 3 秒，`reviveUsed`）。
+   - 手动技能（`manualSkills`，J / K / L，冷却放在 `sides[s].manualCd[3]`，`satanNoCd` 时冷却为 0）：
+     - 地狱火雨：全场敌军 400 火伤 + 3 层灼烧，敌方水晶 500 伤害。
+     - 深渊威压：全场敌军击退 180（远离撒旦）+ 眩晕 4 秒，无视巨型减半，打断蓄力和冲锋。
+     - 灵魂收割：处决全场生命 < 40% 的敌军，每个 +25 金币，撒旦回复 5% 生命，最多 8 个变成玩家的骷髅（20 秒）。
+   - 手动释放入口 `manualCast(eng, side, idx)` 返回 `'ok' | 'nosatan' | 'cooldown'`，撒旦不在场返回 `'nosatan'`。
+   - 撒旦的特殊效果走 combat.js 里的 `satanAura`、`manualCast`，不要塞进普通技能表。
+3. **水晶的伤害修正**（review 问题 3）：水晶也吃易伤 ×1.2、衰弱（攻击方）、雷克斯光环 ×1.15，护甲倍率仍按水晶规则（重甲，攻城 ×3）。
+4. **AI 的两个问题必须修**（review 问题 1、2）：
+   - 灰鼠群刷屏：打分改成“每人口的价值”，同兵种降权按累计出兵次数（`sides[s].spawned`），而不是场上在场个数；克制匹配里“怕灰鼠群”不能让灰鼠群一直高分。
+   - 雷克斯从不出场：节奏规则要真正轮到 T0，攒钱窗口覆盖 T0 的花费。
+   - 验收：AI 对战 20 局里灰鼠群出兵不超过双方总出兵的 25%；雷克斯至少在 1 局里出场。
+5. review 问题 4（骷髅骨堆期间不受控制效果）可以保留现状，写进 QUESTIONS.md。
+6. 远端的 `docs/REVIEW.md` 是本轮改造的验收依据之一，改写完成后要逐条对照。
