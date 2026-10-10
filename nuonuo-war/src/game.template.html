@@ -37,12 +37,19 @@
   .hp.me .fill { background: linear-gradient(90deg, #2a7fd6, var(--me)); }
   .hp.foe { flex-direction: row-reverse; }
   .hp.foe .fill { background: linear-gradient(270deg, #c93a3a, var(--foe)); right: 0; left: auto; }
-  #center { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  #center { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
   #econ { display: flex; gap: 14px; align-items: baseline; font-size: 14px; white-space: nowrap; }
   #gold { color: var(--gold); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
   #income { font-size: 12px; color: var(--muted); }
   #pop { font-variant-numeric: tabular-nums; }
-  #minimap { width: 100%; max-width: 320px; height: 16px; border-radius: 4px; display: block; cursor: pointer; }
+  #field { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* 小地图：画在战场左下角，完整地图的比例 2.5 : 1 */
+  #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 4; width: 200px; height: 80px; border: 1px solid var(--line); border-radius: 6px; background: #0a0e1c; display: block; cursor: pointer; touch-action: none; box-shadow: 0 4px 14px #0008; }
+  /* 镜头按钮：画布右侧居中 */
+  #camctl { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  #camctl .cbtn { width: 40px; height: 40px; border-radius: 10px; background: #171d33e0; border: 1px solid var(--line); font-size: 20px; line-height: 1; }
+  #camctl .cbtn.wide { width: auto; height: auto; padding: 6px 10px; font-size: 12px; }
+  #camctl .cbtn.on { border-color: var(--gold); color: var(--gold); }
   #right { position: absolute; right: 10px; top: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
   #clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 46px; text-align: right; }
   .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
@@ -127,6 +134,7 @@
   table.stats th:first-child, table.stats td:first-child { text-align: left; }
   .win { color: var(--ok); }
   .lose { color: var(--foe); }
+  .draw { color: var(--gold); }
   #rotate { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg); align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; }
   @media (orientation: portrait) and (max-width: 900px) { #rotate { display: flex; } }
   @media (max-width: 700px) {
@@ -137,6 +145,16 @@
     #right { gap: 6px; }
     .btn { padding: 4px 9px; font-size: 12px; }
     .card { flex-basis: 66px; height: 90px; }
+    #minimap { left: 8px; bottom: 8px; width: 140px; height: 56px; }
+    #camctl { right: 8px; gap: 4px; }
+    #camctl .cbtn { width: 36px; height: 36px; font-size: 18px; }
+  }
+  /* 矮的屏幕（手机横屏）：技能栏缩小，镜头按钮往上挪，撒旦在场时两者不重叠 */
+  @media (max-height: 500px) {
+    #satanbar { right: 8px; bottom: 8px; gap: 8px; }
+    .sk-btn { width: 50px; height: 50px; font-size: 11px; }
+    #camctl { top: 42%; right: 8px; gap: 4px; }
+    #camctl .cbtn { width: 34px; height: 34px; font-size: 18px; }
   }
 </style>
 </head>
@@ -145,13 +163,19 @@
   <header id="hud">
     <div class="hp me"><span class="tag">我方水晶</span><div class="bar"><div class="fill" id="hp-me"></div></div><span class="num" id="hp-me-n">4000</span></div>
     <div id="center">
-      <div id="econ"><span id="gold">200</span><span id="income">+10/秒</span><span id="pop">人口 0/20</span></div>
-      <canvas id="minimap"></canvas>
+      <div id="econ"><span id="gold">300</span><span id="income">+25/秒</span><span id="pop">人口 0/120</span></div>
+      <div id="field">在场：我方 0 / 电脑 0</div>
     </div>
     <div class="hp foe"><span class="tag">电脑水晶</span><div class="bar"><div class="fill" id="hp-foe"></div></div><span class="num" id="hp-foe-n">4000</span></div>
   </header>
   <main id="stage">
     <canvas id="cv"></canvas>
+    <canvas id="minimap" title="小地图：点击或拖动跳转"></canvas>
+    <div id="camctl">
+      <button class="btn cbtn" id="btn-zin" title="放大（]）">+</button>
+      <button class="btn cbtn" id="btn-zout" title="缩小（[）">−</button>
+      <button class="btn cbtn wide" id="btn-follow" title="镜头跟随战斗中心；手动操作后暂停 3 秒">跟随战斗</button>
+    </div>
     <div id="right">
       <span id="clock">00:00</span>
       <button class="btn" id="btn-speed" title="切换 1 倍速 / 2 倍速（Z）">1×</button>
@@ -168,15 +192,15 @@
   <section class="overlay" id="ov-start">
     <div class="panel">
       <h1>糯糯战记</h1>
-      <p class="muted">单机兵线对战。花金币出兵，兵会自己往前走、自己打；先打爆对方水晶的一方获胜。</p>
+      <p class="muted">单机平原对战。花金币出兵，兵会自己往前走、遇到敌人就打；先打爆对方水晶的一方获胜。</p>
       <p class="muted">选择电脑难度</p>
       <div class="levels" id="levels">
         <button data-level="easy"><b>简单</b><small>电脑收入 ×0.8，出兵随意</small></button>
         <button data-level="normal" class="on"><b>普通</b><small>会克制你的兵种</small></button>
         <button data-level="hard"><b>困难</b><small>收入 ×1.15，会抢经济、攒钱大招</small></button>
       </div>
-      <p>出兵：点击下方兵种，或按键盘 <b>1–0</b>、<b>Q–P</b>。长按（或鼠标悬停）看兵种简介。</p>
-      <p>镜头：拖动战场、左右方向键或 A / D 移动；点小地图也能跳。空格暂停，Z 切换 2 倍速。</p>
+      <p>出兵：点击下方兵种，或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦（只有你能用）。长按（或鼠标悬停）看兵种简介。</p>
+      <p>镜头：拖动或双指捏合，滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b> 放手动技能，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
       <div class="actions"><button class="btn primary" id="btn-start">开始对战</button></div>
     </div>
   </section>

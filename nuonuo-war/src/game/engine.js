@@ -1,14 +1,16 @@
-// 糯糯战记 · 对局引擎：状态、固定步长主循环、经济与出兵、索敌与移动、攻击出手、胜负
-// 纯逻辑，不碰 DOM / canvas。渲染和 UI 只读这里的状态，通过 spawn() 下单。
-// 坐标：兵线 x ∈ [0, 1600]。side 0 玩家在左、向右走；side 1 电脑在右、向左走。
+// 糯糯战记 · 对局引擎：二维战场、空间网格、固定步长主循环、经济与出兵、索敌与移动、分离推挤、胜负
+// 纯逻辑，不碰 DOM / canvas。渲染和界面只读这里的状态，通过 spawn() 下单。
+// 坐标：世界像素 x ∈ [0, map.w]，y ∈ [0, map.h]。side 0 玩家在左、朝右走；side 1 电脑在右、朝左走。
 (function () {
   const R = window.RULES;
   const SH = window.HD_SHEETS;
   const C = window.Combat;
-  const DT = 1 / 60;
-  const REACH = 12;       // 攻击距离的容差（中心到中心）
-  const BLOCK_GAP = 22;   // 地面单位之间的挡路距离
-  const LANE = R.lane.length;
+  const DT = 1 / 30;
+  const CELL = 96;          // 空间网格的格子大小
+  const MAX_R = 40;         // 单位半径上限，查询范围要多留这一截
+  const REACH = 4;          // 攻击距离的余量（中心到中心）
+  const RETARGET = 0.25;    // 追击目标的重新计算间隔（秒）
+  const GROUP_GAP = 22;     // 同一组单位在出兵点附近的错开间距
 
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -29,6 +31,81 @@
     const a = animOf(sheet, 'death');
     return a ? a.n / a.fps : 0.8;
   }
+  // 单位碰撞半径：max(12, min(40, 身体宽 × 0.45))；巨型单位至少 30
+  function unitRadius(def) {
+    const sh = SH[def.sheet];
+    let r = sh ? Math.max(12, Math.min(MAX_R, sh.bodyW * 0.45)) : 20;
+    if (def.tags.indexOf('giant') >= 0) r = Math.max(30, r);
+    return r;
+  }
+  function keyOf(cx, cy) { return (cx + 4096) * 8192 + (cy + 4096); }
+
+  // 相邻格子的方向：右、右下、下、左下（配上它们的反方向正好是 8 邻格），用来每对只访问一次
+  const FWD = [1, 0, 1, 1, 0, 1, -1, 1];
+
+  // 空间哈希网格：只存单位引用。每步开始重建；分离推挤前后各重建一次。
+  class Grid {
+    constructor(cell = CELL) {
+      this.cell = cell;
+      this.map = new Map();
+      this.used = [];           // 本轮有单位的格子（桶），clear 时只清这些
+      this.ucx = [];            // 与 used 一一对应的格子坐标
+      this.ucy = [];
+    }
+    clear() {
+      for (const b of this.used) b.length = 0;
+      this.used.length = 0;
+      this.ucx.length = 0;
+      this.ucy.length = 0;
+    }
+    insert(u) {
+      const cx = Math.floor(u.x / this.cell), cy = Math.floor(u.y / this.cell);
+      const k = keyOf(cx, cy);
+      let b = this.map.get(k);
+      if (!b) { b = []; this.map.set(k, b); }
+      if (b.length === 0) { this.used.push(b); this.ucx.push(cx); this.ucy.push(cy); }
+      b.push(u);
+    }
+    // 所有中心距离 ≤ r 的单位（不过滤阵营和状态）
+    near(x, y, r, out = []) {
+      const c = this.cell, r2 = r * r;
+      const x0 = Math.floor((x - r) / c), x1 = Math.floor((x + r) / c);
+      const y0 = Math.floor((y - r) / c), y1 = Math.floor((y + r) / c);
+      for (let cx = x0; cx <= x1; cx++) {
+        for (let cy = y0; cy <= y1; cy++) {
+          const b = this.map.get(keyOf(cx, cy));
+          if (!b) continue;
+          for (let i = 0; i < b.length; i++) {
+            const u = b[i];
+            const dx = u.x - x, dy = u.y - y;
+            if (dx * dx + dy * dy <= r2) out.push(u);
+          }
+        }
+      }
+      return out;
+    }
+    // 中心落在矩形 [x0, x1] × [y0, y1] 内的单位
+    box(x0, x1, y0, y1, out = []) {
+      const c = this.cell;
+      const cx1 = Math.floor(x1 / c), cy1 = Math.floor(y1 / c);
+      for (let cx = Math.floor(x0 / c); cx <= cx1; cx++) {
+        for (let cy = Math.floor(y0 / c); cy <= cy1; cy++) {
+          const b = this.map.get(keyOf(cx, cy));
+          if (!b) continue;
+          for (let i = 0; i < b.length; i++) {
+            const u = b[i];
+            if (u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) out.push(u);
+          }
+        }
+      }
+      return out;
+    }
+  }
+
+  // 参与分离推挤的单位：地面、不是巨像、不在钻地、不是骨堆、活着
+  function solid(eng, u) {
+    return !u.flying && !u.ghost && !u.burrowed && !u.bones && eng.alive(u);
+  }
 
   class Engine {
     constructor(opts = {}) {
@@ -38,9 +115,11 @@
       this.speed = 1;
       this.ended = false;
       this.winner = null;
-      this.front = [100, LANE - 100];                       // 水晶前沿
+      this.W = R.map.w;
+      this.H = R.map.h;
       this.crystals = [0, 1].map((s) => ({
-        isCrystal: true, side: s, x: this.front[s], hp: R.lane.crystalHp, maxHp: R.lane.crystalHp, cd: 0,
+        isCrystal: true, side: s, x: s === 0 ? R.map.inset : R.map.w - R.map.inset, y: R.map.h / 2,
+        radius: R.map.crystalRadius, hp: R.map.crystalHp, maxHp: R.map.crystalHp, cd: 0, st: {},
       }));
       this.sides = [0, 1].map(() => ({
         gold: R.economy.startGold, supplyUsed: 0, cdLeft: {}, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0],
@@ -59,12 +138,17 @@
       this.pending = [];       // 本 tick 内死亡的单位，统一在 tick 末尾结算
       this.ais = [];
       this.uidSeq = 0;
+      this.grid = new Grid(CELL);
+      // 每步重建网格时顺便统计：各阵营存活数、正在挥击数，以及远程单位列表（蝙蝠追击用）
+      this.stat = { alive: [0, 0], swing: [0, 0] };
+      this.rangedBy = [[], []];
+      this.pairBuf = [];        // 分离推挤用的重叠对缓冲区（复用，避免每步分配）
     }
 
     // ---------- 事件与特效（给渲染和界面用） ----------
     emit(ev) {
       this.events.push(ev);
-      if (this.events.length > 400) this.events.splice(0, this.events.length - 400);
+      if (this.events.length > 600) this.events.splice(0, this.events.length - 400);
     }
     drainEvents() {
       const out = this.events;
@@ -91,56 +175,91 @@
       for (const u of this.units) if (u.side === side && u.uid === uid && this.alive(u)) n++;
       return n;
     }
-    // 王之威仪：雷克斯 200 范围内的友军伤害 +15%、免疫衰弱
+    goalOf(side) {
+      return this.crystals[1 - side];
+    }
+    // 王之威仪：200 范围内同阵营存活的雷克斯
     rexAura(u) {
-      for (const e of this.units) {
-        if (e.uid === 'rex' && e.side === u.side && this.alive(e) && Math.abs(e.x - u.x) <= 200) return true;
-      }
-      return false;
+      return this.unitsNear(u.x, u.y, 200).some((e) => e.uid === 'rex' && e.side === u.side && this.alive(e));
     }
     // 盾墙：布朗身后 120 范围内（含布朗自己）的友军受到的穿刺伤害 -70%
     brownShield(tgt) {
-      for (const e of this.units) {
-        if (e.uid !== 'brown' || e.side !== tgt.side || !(e.shieldWallT > 0) || !this.alive(e)) continue;
-        const d = (tgt.x - e.x) * C.DIR(e.side);
-        if (d <= 0 && d >= -120) return true;
-      }
-      return false;
+      return this.unitsNear(tgt.x, tgt.y, 200).some((b) => b.uid === 'brown' && b.side === tgt.side &&
+        b.shieldWallT > 0 && this.alive(b) && C.shieldCovers(b, tgt));
     }
-
-    // 普通索敌：射程内的敌人（远程优先给蝙蝠）；没有就看水晶
+    // 中心距离 ≤ r 的存活单位或骨堆（任意阵营，空间网格查询）
+    unitsNear(x, y, r) {
+      const out = this.grid.near(x, y, r);
+      let n = 0;
+      for (let i = 0; i < out.length; i++) {
+        const u = out[i];
+        if (this.alive(u) || u.bones) out[n++] = u;
+      }
+      out.length = n;
+      return out;
+    }
+    // 矩形范围内的存活单位或骨堆（任意阵营）
+    unitsBox(x0, x1, y0, y1) {
+      const out = this.grid.box(x0, x1, y0, y1);
+      let n = 0;
+      for (let i = 0; i < out.length; i++) {
+        const u = out[i];
+        if (this.alive(u) || u.bones) out[n++] = u;
+      }
+      out.length = n;
+      return out;
+    }
+    // u 的敌方、可攻击、中心距离 ≤ r
+    enemiesNear(u, r) {
+      return this.unitsNear(u.x, u.y, r).filter((e) => e.side !== u.side && this.targetable(e));
+    }
+    // 中心距离 ≤ u.range + u.radius + t.radius + 4（+ pad）：t 可以是水晶
+    inReach(u, t, pad = 0) {
+      const r = u.range + u.radius + t.radius + REACH + pad;
+      const dx = t.x - u.x, dy = t.y - u.y;
+      return dx * dx + dy * dy <= r * r;
+    }
+    // 普通索敌：攻击距离内最优的单位（远程优先给蝙蝠）；没有就看水晶。巨像只找水晶
     findTarget(u) {
       const foe = 1 - u.side;
-      if (u.uid === 'titan') {
-        // 碎城巨人眼里只有水晶
+      if (u.ghost) {
         const c = this.crystals[foe];
-        return c.hp > 0 && Math.abs(this.front[foe] - u.x) <= u.range + REACH ? c : null;
+        return c.hp > 0 && this.inReach(u, c) ? c : null;
       }
       let best = null, bestKey = Infinity;
-      for (const e of this.units) {
+      for (const e of this.unitsNear(u.x, u.y, u.range + u.radius + MAX_R + REACH)) {
         if (e.side !== foe || !this.targetable(e)) continue;
         if (e.flying && !u.canHitAir) continue;
-        const d = Math.abs(e.x - u.x);
-        if (d > u.range + REACH) continue;
-        const key = (u.uid === 'bats' && !e.ranged ? 1e6 : 0) + d;
+        if (!this.inReach(u, e)) continue;
+        const key = (u.uid === 'bats' && !e.ranged ? 1e6 : 0) + Math.hypot(e.x - u.x, e.y - u.y);
         if (key < bestKey) { bestKey = key; best = e; }
       }
       if (best) return best;
       const c = this.crystals[foe];
-      if (c.hp > 0 && Math.abs(this.front[foe] - u.x) <= u.range + REACH) return c;
-      return null;
+      return c.hp > 0 && this.inReach(u, c) ? c : null;
     }
     validInRange(u, t) {
-      if (t.isCrystal) return t.hp > 0 && Math.abs(this.front[t.side] - u.x) <= u.range + REACH;
-      return this.targetable(t) && Math.abs(t.x - u.x) <= u.range + REACH && (!t.flying || u.canHitAir);
+      if (t.isCrystal) return t.hp > 0 && this.inReach(u, t);
+      return this.targetable(t) && this.inReach(u, t) && (!t.flying || u.canHitAir);
     }
-    // 蝙蝠飞向最近的远程敌人（不论距离）
+    // 追击目标：仇恨范围 max(320, range + 200) 内最近的可攻击敌人；蝙蝠是全图最近的远程敌人；巨像和不能动的没有
     chaseTarget(u) {
+      if (u.ghost || u.def.speed <= 0) return null;
       const foe = 1 - u.side;
       let best = null, bd = Infinity;
-      for (const e of this.units) {
-        if (e.side !== foe || !e.ranged || !this.targetable(e)) continue;
-        const d = Math.abs(e.x - u.x);
+      if (u.uid === 'bats') {
+        for (const e of this.rangedBy[foe]) {
+          if (!this.targetable(e)) continue;
+          const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
+          if (d < bd) { bd = d; best = e; }
+        }
+        return best;
+      }
+      const aggro = Math.max(320, u.range + 200);
+      for (const e of this.unitsNear(u.x, u.y, aggro)) {
+        if (e.side !== foe || !this.targetable(e)) continue;
+        if (e.flying && !u.canHitAir) continue;
+        const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
         if (d < bd) { bd = d; best = e; }
       }
       return best;
@@ -169,21 +288,39 @@
       S.cdLeft[uid] = d.cooldown;
       S.spawned[uid] = (S.spawned[uid] || 0) + d.count;
       const group = { supply: d.supply, members: d.count };   // 一次出几个，人口只算一次
-      const base = side === 0 ? this.front[0] + 14 : this.front[1] - 14;
+      const fp = this.formationPoint(side);
       const back = side === 0 ? -1 : 1;                         // 成群的往自家方向排
+      const cols = Math.ceil(Math.sqrt(d.count));
       for (let i = 0; i < d.count; i++) {
+        const row = Math.floor(i / cols), col = i % cols;
         this.addUnit(side, d, {
-          x: base + back * i * 10 + (this.rng() - 0.5) * 6,
-          uy: (this.rng() - 0.5) * 12,
+          x: fp.x + back * row * GROUP_GAP,
+          y: fp.y + (col - (cols - 1) / 2) * GROUP_GAP,
           group,
         });
       }
       this.emit({ t: 'spawn', side, uid });
       return true;
     }
+    // 出兵点：自家水晶内侧 spawnDepth 的纵深，y 以 h/2 为中心展开 spawnSpread
+    formationPoint(side) {
+      const M = R.map;
+      const along = M.inset + M.crystalRadius + 60 + this.rng() * M.spawnDepth;
+      return {
+        x: side === 0 ? along : M.w - along,
+        y: M.h / 2 + (this.rng() - 0.5) * M.spawnSpread,
+      };
+    }
 
-    // 创建单位。summon：召唤物（不占人口、不留尸体）；life：到时间自动消散
+    // 创建单位。summon：召唤物（不占人口、不留尸体）；life：到时间自动消散；不传 x/y 就用出兵点
     addUnit(side, def, o = {}) {
+      const radius = unitRadius(def);
+      let x = o.x, y = o.y;
+      if (x == null || y == null) {
+        const fp = this.formationPoint(side);
+        if (x == null) x = fp.x;
+        if (y == null) y = fp.y;
+      }
       const u = {
         id: ++this.uidSeq,
         side,
@@ -193,8 +330,10 @@
         name: def.name,
         sheet: def.sheet,
         small: !!def.small,
-        x: o.x == null ? (side === 0 ? this.front[0] + 14 : this.front[1] - 14) : o.x,
-        uy: o.uy == null ? 0 : o.uy,
+        tier: def.tier,
+        x: 0,
+        y: 0,
+        radius,
         hp: def.hp,
         maxHp: def.hp,
         aspd: def.aspd,
@@ -204,6 +343,7 @@
         flying: def.tags.indexOf('flying') >= 0,
         ranged: def.range >= R.rangedThreshold,
         canHitAir: def.range >= R.rangedThreshold && !def.groundOnly,
+        giant: def.tags.indexOf('giant') >= 0,
         ghost: def.id === 'titan',
         st: {},
         imm: { stun: 0, frozen: 0 },
@@ -218,6 +358,7 @@
         cast: null,
         charge: null,
         burrowed: false,
+        moving: false,
         clock: 0,
         hitT: 99,
         dead: false,
@@ -225,11 +366,18 @@
         bones: false,
         bonesT: 0,
         reformUsed: false,
+        reviveUsed: false,
+        auraT: 0,
         summon: !!o.summon,
         life: o.life == null ? null : o.life,
         group: o.group || null,
+        chase: null,
+        retargetT: this.rng() * RETARGET,
       };
+      C.place(u, x, y);
       this.units.push(u);
+      this.grid.insert(u);
+      if (u.ranged) this.rangedBy[side].push(u);
       return u;
     }
 
@@ -253,16 +401,17 @@
     }
 
     // ---------- 远程攻击：发射投射物，落地时结算 ----------
-    // homing：true 追着目标飞；false 落在发射时的位置（炸弹）
+    // homing：true 追着目标飞；false 落在发射时的位置（炸弹）。返回投射物对象
     fireAttack(src, tgt, sprite, onLand, homing = true) {
-      const x1 = tgt.x;
-      const dist = Math.abs(x1 - src.x);
+      const dist = Math.hypot(tgt.x - src.x, tgt.y - src.y);
       const dur = Math.max(0.12, Math.min(0.7, dist / 900));
-      this.projectiles.push({
+      const p = {
         sprite, side: src.side, el: src.def ? src.def.element : null,
-        x0: src.x, x1, h0: src.h0 == null ? 30 : src.h0,
+        x0: src.x, y0: src.y, x1: tgt.x, y1: tgt.y, h0: src.h0 == null ? 30 : src.h0,
         tgt, homing, t: 0, dur, done: false, onLand,
-      });
+      };
+      this.projectiles.push(p);
+      return p;
     }
 
     // 一次攻击在 release 帧出手：目标失效就重新找，找不到就空挥
@@ -271,20 +420,27 @@
       if (!this.validInRange(u, t)) t = this.findTarget(u);
       if (!t) return;
       if (t.isCrystal) {
-        if (u.ranged) {
-          this.fireAttack(u, t, u.def.projectile || 'orb', () => {
-            if (t.hp > 0) C.damage(this, u, t, u.atk, u.dmgType, { attack: true });
-          });
-        } else {
-          C.damage(this, u, t, u.atk, u.dmgType, { attack: true });
-        }
+        // 水晶和单位一样吃攻击方的 onHit（亡灵君主的易伤等，applyStatus 只让水晶收下易伤）
+        const hit = () => {
+          if (t.hp <= 0) return;
+          if (C.damage(this, u, t, u.atk, u.dmgType, { attack: true }) > 0) {
+            for (const h of u.def.onHit) C.applyStatus(this, t, h.status, { stacks: h.stacks });
+          }
+        };
+        if (u.ranged) this.fireAttack(u, t, u.def.projectile || 'orb', hit);
+        else hit();
         return;
       }
       if (u.ranged) {
         const splash = u.def.splash || 0;
-        this.fireAttack(u, t, u.def.projectile || 'orb', () => {
-          if (this.targetable(t)) C.hitAttack(this, u, t, splash);
-          else if (splash) C.splashAt(this, u, t.x, splash, null, u.dmgType, u.atk, u.def.element);
+        const p = this.fireAttack(u, t, u.def.projectile || 'orb', () => {
+          // 落点：追踪弹是目标最后的位置，炸弹是发射时的位置
+          const ix = p.x1, iy = p.y1;
+          if (this.targetable(t) && (!splash || Math.hypot(t.x - ix, t.y - iy) <= splash)) {
+            C.hitAttack(this, u, t, splash);
+          } else if (splash) {
+            C.splashAt(this, u, ix, iy, splash, null, u.dmgType, u.atk, u.def.element);
+          }
         }, !splash);
       } else {
         C.hitAttack(this, u, t, u.def.splash || 0);
@@ -308,31 +464,31 @@
       if (s.t >= s.period) u.swing = null;
     }
 
-    // 地面单位被前面的敌方地面单位挡住；蝙蝠、飞行、地下、巨碎城不挡也不被挡
-    blocked(u, dir) {
-      for (const e of this.units) {
-        if (e.side === u.side || e.flying || e.burrowed || e.ghost || !this.alive(e)) continue;
-        const d = (e.x - u.x) * dir;
-        if (d > 0 && d < BLOCK_GAP) return true;
-      }
-      return false;
-    }
+    // 移动（第五节）：有追击目标且够不着就朝它走；否则朝敌方水晶走，够得着就停
     move(u, dt) {
       u.burrowed = false;
       u.moving = false;
       if (u.def.speed <= 0 || C.has(u, 'root')) return;
-      let dir = u.dir;
-      let v = u.def.speed * C.slowMul(u);
-      if (u.uid === 'bats') {
-        const c = this.chaseTarget(u);
-        if (c && c.x !== u.x) dir = Math.sign(c.x - u.x);
+      let tgt = null;
+      const c = u.chase;
+      if (c && this.targetable(c)) {
+        if (this.inReach(u, c)) return;     // 已经够得着，由挥击处理
+        tgt = c;
+      } else {
+        const g = this.goalOf(u.side);
+        if (g.hp <= 0 || this.inReach(u, g)) return;
+        tgt = g;
       }
+      let v = u.def.speed * C.slowMul(u);
       if (u.uid === 'worm') {       // 移动时钻在地下：不能被攻击，移速 ×1.5
         u.burrowed = true;
         v *= 1.5;
       }
-      if (!u.flying && !u.ghost && this.blocked(u, dir)) return;
-      u.x = C.clampX(u.x + dir * v * dt);
+      const dx = tgt.x - u.x, dy = tgt.y - u.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 1e-6) return;
+      const s = Math.min(d, v * dt);
+      C.place(u, u.x + (dx / d) * s, u.y + (dy / d) * s);
       u.moving = true;
     }
 
@@ -340,14 +496,15 @@
     updateUnit(u, dt) {
       if (u.dead || u.pendingDeath || u.bones) return;
       u.burrowed = false;
+      u.moving = false;
       if (u.charge) { C.chargeStep(this, u, dt); return; }
       if (u.cast) { C.castStep(this, u, dt); return; }
       if (u.uid === 'lein') {
         u.cleanseT -= dt;
         if (u.cleanseT <= 0) {
-          u.cleanseT = 2;   // 净化光环：清掉身边友军的易伤和衰弱
-          for (const f of this.units) {
-            if (f.side === u.side && this.alive(f) && Math.abs(f.x - u.x) <= 120) {
+          u.cleanseT = 2;   // 净化光环：清掉身边 120 范围内友军的易伤和衰弱
+          for (const f of this.unitsNear(u.x, u.y, 120)) {
+            if (f.side === u.side && this.alive(f)) {
               delete f.st.vulnerable;
               delete f.st.weaken;
             }
@@ -355,6 +512,13 @@
         }
       }
       if (C.has(u, 'stun') || C.has(u, 'frozen')) return;
+      if (u.def.speed > 0) {
+        u.retargetT -= dt;
+        if (u.retargetT <= 0) {
+          u.retargetT = RETARGET;
+          u.chase = this.chaseTarget(u);
+        }
+      }
       if (C.trySkill(this, u) && (u.cast || u.charge)) return;
       if (!u.swing) {
         const t = this.findTarget(u);
@@ -365,6 +529,95 @@
         return;
       }
       this.move(u, dt);
+    }
+
+    // 每步开始（和移动、推挤之后）重建空间网格，并统计存活数、挥击数、远程列表
+    buildGrid() {
+      const g = this.grid;
+      g.clear();
+      const st = this.stat;
+      st.alive[0] = st.alive[1] = 0;
+      st.swing[0] = st.swing[1] = 0;
+      this.rangedBy[0].length = 0;
+      this.rangedBy[1].length = 0;
+      for (const u of this.units) {
+        g.insert(u);
+        if (!this.alive(u)) continue;
+        st.alive[u.side]++;
+        if (u.swing) st.swing[u.side]++;
+        if (u.ranged) this.rangedBy[u.side].push(u);
+      }
+    }
+
+    // 分离推挤（第 4.4 节）：地面单位两两重叠各推开一半；所有单位限制在地图内；
+    // 地面单位最后再推出水晶圆外（放在单位推挤之后，保证推挤不会把单位推进水晶）
+    separate() {
+      const g = this.grid;
+      // 先在推挤前的网格上找出所有重叠的对，再统一推，避免中途位置变化漏掉。
+      // 格子边长 96 大于两个单位半径之和的最大值（80，CELL 不能小于它），重叠的两个单位一定在同格或相邻格里，
+      // 所以按格子遍历：同格内两两配对，邻格只看 4 个方向，每对只访问一次，不用对每个单位做查询
+      const pairs = this.pairBuf;
+      pairs.length = 0;
+      const addPair = (a, b) => {
+        if (!solid(this, b)) return;
+        const m = a.radius + b.radius;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        if (dx * dx + dy * dy < m * m) pairs.push(a, b);
+      };
+      for (let i = 0; i < g.used.length; i++) {
+        const cell = g.used[i], cx = g.ucx[i], cy = g.ucy[i];
+        for (let p = 0; p < cell.length; p++) {
+          const a = cell[p];
+          if (!solid(this, a)) continue;
+          for (let q = p + 1; q < cell.length; q++) addPair(a, cell[q]);
+          for (let o = 0; o < FWD.length; o += 2) {
+            const nb = g.map.get(keyOf(cx + FWD[o], cy + FWD[o + 1]));
+            if (nb) for (let q = 0; q < nb.length; q++) addPair(a, nb[q]);
+          }
+        }
+      }
+      for (let i = 0; i < pairs.length; i += 2) {
+        const a = pairs[i], b = pairs[i + 1];
+        const m = a.radius + b.radius;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d >= m) continue;
+        let nx, ny;
+        if (d < 1e-6) {
+          const ang = this.rng() * Math.PI * 2;
+          nx = Math.cos(ang);
+          ny = Math.sin(ang);
+        } else {
+          nx = dx / d;
+          ny = dy / d;
+        }
+        const h = (m - d) / 2;
+        a.x -= nx * h; a.y -= ny * h;
+        b.x += nx * h; b.y += ny * h;
+      }
+      // 水晶圆：地面单位推到圆边上。水晶只有两个，直接扫全部单位，不用网格
+      for (const c of this.crystals) {
+        if (c.hp <= 0) continue;
+        for (const u of this.units) {
+          if (!solid(this, u)) continue;
+          const m = c.radius + u.radius;
+          const dx = u.x - c.x, dy = u.y - c.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d >= m) continue;
+          let nx, ny;
+          if (d < 1e-6) {
+            const ang = this.rng() * Math.PI * 2;
+            nx = Math.cos(ang);
+            ny = Math.sin(ang);
+          } else {
+            nx = dx / d;
+            ny = dy / d;
+          }
+          u.x = c.x + nx * m;
+          u.y = c.y + ny * m;
+        }
+      }
+      for (const u of this.units) C.place(u, u.x, u.y);
     }
 
     // ---------- 主循环 ----------
@@ -384,6 +637,7 @@
     step(dt) {
       if (this.ended) return;
       this.time += dt;
+      this.buildGrid();
       if (!this.cheats.aiOff) for (const ai of this.ais) ai.tick(this, dt);
 
       // 经济：基础收入 + 贪婪宝箱每个每秒 3 金币
@@ -411,14 +665,20 @@
         if (u.uid === 'satan' && this.alive(u)) C.satanAura(this, u, dt);
         if (u.life != null) {
           u.life -= dt;
-          if (u.life <= 0) this.markDead(u);
+          // 召唤物到时间消散：hp 归零再登记死亡，结算时不会被当成“没死”而留在场上
+          if (u.life <= 0) { u.hp = 0; this.markDead(u); }
         }
       }
 
       for (const u of this.units.slice()) this.updateUnit(u, dt);
 
+      this.buildGrid();      // 移动之后重建，给分离推挤用
+      this.separate();
+      this.buildGrid();      // 推挤之后重建，给后面的落地、区域、炮塔用
+
       for (const p of this.projectiles) {
         if (p.done) continue;
+        if (p.homing && p.tgt) { p.x1 = p.tgt.x; p.y1 = p.tgt.y; }
         p.t += dt;
         if (p.t >= p.dur) {
           p.done = true;
@@ -438,7 +698,15 @@
       for (const b of this.bodies) b.age += dt;
       this.bodies = this.bodies.filter((b) => b.age < b.life);
 
-      // 水晶炮塔
+      // 水晶只挂易伤，这里走计时（单位的状态在 tickStatuses 里走）
+      for (const c of this.crystals) {
+        for (const id of Object.keys(c.st)) {
+          c.st[id].t -= dt;
+          if (c.st[id].t <= 0) delete c.st[id];
+        }
+      }
+
+      // 水晶炮塔：攻击距离 = 炮塔射程 + 水晶半径（从水晶圆心算），打最近的敌方可攻击单位（能打飞行）
       for (let s = 0; s < 2; s++) {
         const c = this.crystals[s];
         if (c.hp <= 0) continue;
@@ -446,15 +714,16 @@
         if (c.cd > 0) continue;
         const foe = 1 - s;
         let t = null, bd = Infinity;
-        for (const e of this.units) {
+        for (const e of this.unitsNear(c.x, c.y, R.crystal.range + c.radius)) {
           if (e.side !== foe || !this.targetable(e)) continue;
-          const d = Math.abs(e.x - this.front[s]);
-          if (d <= R.crystal.range && d < bd) { bd = d; t = e; }
+          const d = (e.x - c.x) ** 2 + (e.y - c.y) ** 2;
+          if (d < bd) { bd = d; t = e; }
         }
         if (t) {
           c.cd = 1 / R.crystal.aspd;
-          this.fireAttack({ side: s, x: this.front[s], h0: 80 }, t, 'arrow', () => {
-            if (this.targetable(t)) C.damage(this, null, t, R.crystal.atk, R.crystal.dmg, { attack: true });
+          this.fireAttack({ side: s, x: c.x, y: c.y, h0: 80 }, t, 'arrow', () => {
+            // 炮塔没有攻击者，伤害倍率按所属阵营取（作弊的伤害倍率对炮塔也生效）
+            if (this.targetable(t)) C.damage(this, null, t, R.crystal.atk, R.crystal.dmg, { attack: true, side: s });
           });
         }
       }
@@ -475,11 +744,11 @@
         const d = deathDur(u.sheet);
         this.bodies.push({
           corpse: !u.summon, side: u.side, uid: u.uid, sheet: u.sheet, small: u.small, scale: u.def.scale || 1,
-          x: u.x, uy: u.uy, age: 0, deathDur: d,
+          x: u.x, y: u.y, age: 0, deathDur: d,
           life: u.summon ? d + 0.4 : R.economy.corpseSeconds,
         });
         C.onDeath(this, u);
-        this.emit({ t: 'death', side: u.side, uid: u.uid, x: u.x });
+        this.emit({ t: 'death', side: u.side, uid: u.uid, x: u.x, y: u.y });
       }
     }
 
@@ -495,20 +764,18 @@
       this.bodies = this.bodies.filter((b) => b.side !== side);
     }
 
+    // 胜负：一方水晶归零就结束，另一方获胜；双方水晶在同一步归零判平局（winner = 'draw'）
     checkWin() {
-      for (let s = 0; s < 2; s++) {
-        if (this.crystals[s].hp <= 0) {
-          this.ended = true;
-          this.winner = 1 - s;
-          this.crystals[s].hp = 0;
-          this.emit({ t: 'end', winner: this.winner });
-          return;
-        }
-      }
+      const dead = [0, 1].filter((s) => this.crystals[s].hp <= 0);
+      if (!dead.length) return;
+      this.ended = true;
+      this.winner = dead.length === 2 ? 'draw' : 1 - dead[0];
+      for (const s of dead) this.crystals[s].hp = 0;
+      this.emit({ t: 'end', winner: this.winner });
     }
   }
 
   Engine.DT = DT;
-  Engine.LANE = LANE;
+  Engine.Grid = Grid;
   window.Engine = Engine;
 })();

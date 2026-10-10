@@ -1,6 +1,6 @@
 # 糯糯战记
 
-单机网页兵线对战游戏（玩家对电脑）。两边各有一个水晶，花金币出兵，兵自己往前走、自己打，先打爆对方水晶的一方获胜。
+单机网页大平原对战游戏（玩家对电脑）。平原 8000×3200，两边各有一个水晶，花金币出兵，兵自己朝敌方水晶推进、遇到敌人自己打，先打爆对方水晶的一方获胜。
 
 ## 游戏
 
@@ -10,9 +10,9 @@
 
 构建：`python3 tools/build_game.py`，然后用浏览器打开 `dist/game.html`。
 
-测试：`node tools/headless_test.js`（机制断言、技能场景、AI 对 AI 50 局）。
+测试：`node tools/headless_test.js`（机制断言、技能场景、撒旦、规模压力、AI 对 AI 20 局）。
 
-实现说明见 `docs/IMPLEMENTATION.md`，规则上的取舍见 `docs/QUESTIONS.md`。
+契约见 `docs/PLANE_SPEC.md`，实现说明见 `docs/IMPLEMENTATION.md`，规则上的取舍见 `docs/QUESTIONS.md`。
 
 ## 图鉴
 

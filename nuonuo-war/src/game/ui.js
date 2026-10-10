@@ -1,4 +1,4 @@
-// 糯糯战记 · 界面：开局、出兵栏、HUD、镜头输入、小地图、简介浮窗、结束统计、主循环
+// 糯糯战记 · 界面：开局、出兵栏、HUD、镜头输入（拖动、双指、滚轮、键盘、小地图、按钮）、简介浮窗、结束统计、主循环
 // 界面只调用引擎的 canSpawn / spawn 和读取状态，不直接改任何数值。
 (function () {
   const R = window.RULES;
@@ -19,6 +19,18 @@
   const REASON = {
     gold: '金币不够', supply: '人口已满', cooldown: '冷却中', max: '场上数量已达上限', ended: '对局已结束', no: '没有这个兵种',
   };
+  const PAN_SPEED = 900;        // 键盘平移：屏幕像素每秒
+  const ZOOM_RATE = 1.2;        // 按住缩放键时，每秒的对数缩放量
+  // 键盘平移的镜头方向。W 留给 Q–P 出兵（第 12 个兵种），上移用方向键
+  const PAN = new Map([
+    ['ArrowLeft', [-1, 0]], ['a', [-1, 0]], ['ArrowRight', [1, 0]], ['d', [1, 0]],
+    ['ArrowUp', [0, -1]], ['ArrowDown', [0, 1]], ['s', [0, 1]],
+  ]);
+  // 缩放键：按物理键位（e.code）记录，] 和 [，= 和 - 的两个符号（+ _）共用同一个键
+  const ZOOM_CODE = new Map([
+    ['BracketRight', 1], ['Equal', 1], ['NumpadAdd', 1],
+    ['BracketLeft', -1], ['Minus', -1], ['NumpadSubtract', -1],
+  ]);
 
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
@@ -32,6 +44,7 @@
     const sec = Math.floor(s % 60);
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
+  const normKey = (e) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
 
   const state = {
     eng: null,
@@ -45,7 +58,8 @@
     renderer: null,
     tipUid: null,
     toastT: 0,
-    drag: null,
+    panKeys: new Set(),
+    zoomKeys: new Set(),
   };
 
   // ---------- 出兵栏 ----------
@@ -72,7 +86,7 @@
 
       card.addEventListener('pointerdown', (e) => onCardDown(e, d.id));
       card.addEventListener('pointerup', (e) => onCardUp(e, d.id));
-      card.addEventListener('pointercancel', hideTip);
+      card.addEventListener('pointercancel', onCardCancel);
       card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hideTip(); });
       card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showTip(d.id, card); });
     });
@@ -97,6 +111,12 @@
       return;
     }
     spawn(uid);
+  }
+  // 手指在出兵栏横滑（pointercancel）：取消长按计时器，不然之后还会弹出简介且没有松手来收起
+  function onCardCancel() {
+    clearTimeout(pressTimer);
+    pressFired = false;
+    hideTip();
   }
 
   // 出兵：成功闪绿，失败提示原因并闪红
@@ -197,7 +217,8 @@
     const S = eng ? eng.sides[0] : null;
     for (const c of state.cards.values()) {
       const d = c.def;
-      const left = S ? S.cdLeft[d.id] || 0 : 0;
+      // 作弊“出兵无冷却”开着时不画冷却遮罩（canSpawn 也忽略冷却，按钮是亮的）
+      const left = S && !(eng && eng.cheats.noCd) ? S.cdLeft[d.id] || 0 : 0;
       c.cd.style.height = `${Math.round((left / d.cooldown) * 100)}%`;
       const ok = eng ? eng.canSpawn(0, d.id) === 'ok' : false;
       if (c.ok !== ok) {
@@ -220,9 +241,12 @@
     const S = eng.sides[0];
     setText('gold', String(Math.floor(S.gold)));
     const mimics = eng.count(0, 'mimic');
-    setText('income', `+${Math.round((R.economy.income + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
+    // 与引擎的收入公式一致：收入 × 阵营收入倍率 + 贪婪宝箱，再乘作弊的收入倍率
+    setText('income', `+${Math.round((R.economy.income * S.incomeMul + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
     setText('pop', eng.cheats.noSupply ? `人口 ${S.supplyUsed}/∞` : `人口 ${S.supplyUsed}/${R.economy.supplyCap}`);
     setText('clock', fmtTime(eng.time));
+    const alive = eng.stat ? eng.stat.alive : [0, 0];
+    setText('field', `在场：我方 ${alive[0]} / 电脑 ${alive[1]}`);
     for (let s = 0; s < 2; s++) {
       const c = eng.crystals[s];
       const id = s === 0 ? 'hp-me' : 'hp-foe';
@@ -234,61 +258,127 @@
   }
 
   // ---------- 镜头输入 ----------
+  function toggleFollow() {
+    const rv = state.renderer;
+    rv.setFollow(!rv.cam.follow);
+    syncFollow();
+  }
+  function syncFollow() {
+    $('btn-follow').classList.toggle('on', state.renderer.cam.follow);
+  }
+
   function bindCamera() {
     const cv = $('cv');
+    // 指针位置表：鼠标和手指都走这里。一根手指拖动，两根手指捏合缩放并跟着中点平移
+    const pts = new Map();
+    let pinch = null;
+    const pinchInfo = () => {
+      const [a, b] = [...pts.values()];
+      const r = cv.getBoundingClientRect();
+      return {
+        mx: (a.x + b.x) / 2 - r.left,
+        my: (a.y + b.y) / 2 - r.top,
+        d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      };
+    };
     cv.addEventListener('pointerdown', (e) => {
-      state.drag = { x: e.clientX, moved: false };
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       cv.setPointerCapture(e.pointerId);
+      pinch = pts.size === 2 ? pinchInfo() : null;
     });
     cv.addEventListener('pointermove', (e) => {
-      if (!state.drag) return;
-      const dx = e.clientX - state.drag.x;
-      if (Math.abs(dx) > 0) {
-        state.drag.moved = true;
-        state.renderer.panPixels(-dx);
-        state.drag.x = e.clientX;
+      const p = pts.get(e.pointerId);
+      if (!p) return;
+      const rv = state.renderer;
+      const px = p.x, py = p.y;
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (pts.size === 1) {
+        rv.dragCam(p.x - px, p.y - py);
+      } else if (pts.size === 2 && pinch) {
+        const cur = pinchInfo();
+        rv.dragCam(cur.mx - pinch.mx, cur.my - pinch.my);
+        rv.zoomAt(cur.mx, cur.my, rv.cam.zoom * cur.d / pinch.d);
+        pinch = cur;
       }
     });
-    const end = () => { state.drag = null; };
+    const end = (e) => {
+      pts.delete(e.pointerId);
+      pinch = pts.size === 2 ? pinchInfo() : null;
+    };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('wheel', (e) => {
       if (!state.renderer) return;
       e.preventDefault();
-      state.renderer.panPixels(e.deltaX || e.deltaY);
+      const rv = state.renderer;
+      const k = e.deltaMode === 1 ? 16 : 1;
+      const dx = e.deltaX * k, dy = e.deltaY * k;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        rv.moveCam(dx, 0);       // 横向滚动：镜头左右移
+      } else {
+        const r = cv.getBoundingClientRect();
+        rv.zoomAt(e.clientX - r.left, e.clientY - r.top, rv.cam.zoom * Math.exp(-dy * 0.0015));
+      }
     }, { passive: false });
 
+    // 小地图：点击或拖动跳转（完整地图，x / w、y / h）
     const mm = $('minimap');
+    let mmDown = false;
     const mmMove = (e) => {
       const r = mm.getBoundingClientRect();
-      const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
-      state.renderer.cam.x = Render.LANE * (x / r.width);
-      state.renderer.cam.manual = true;
-      state.renderer.cam.manualT = state.renderer.time;
-      state.renderer.clampCam();
+      const fx = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      const fy = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+      state.renderer.centerOn(fx * Render.MW, fy * Render.MH);
     };
-    let mmDown = false;
     mm.addEventListener('pointerdown', (e) => { mmDown = true; mm.setPointerCapture(e.pointerId); mmMove(e); });
     mm.addEventListener('pointermove', (e) => { if (mmDown) mmMove(e); });
-    mm.addEventListener('pointerup', () => { mmDown = false; });
-    mm.addEventListener('pointercancel', () => { mmDown = false; });
+    const mmEnd = () => { mmDown = false; };
+    mm.addEventListener('pointerup', mmEnd);
+    mm.addEventListener('pointercancel', mmEnd);
+
+    // 画布右侧的 + − 和跟随开关（给触屏用）
+    $('btn-zin').addEventListener('click', () => state.renderer.zoomBy(1.25));
+    $('btn-zout').addEventListener('click', () => state.renderer.zoomBy(0.8));
+    $('btn-follow').addEventListener('click', toggleFollow);
+  }
+
+  // 键盘镜头：平移和缩放按住持续生效（每帧按 dt 计算）
+  function applyKeys(dt) {
+    const rv = state.renderer;
+    if (!rv || dt <= 0) return;
+    let dx = 0, dy = 0, dz = 0;
+    for (const k of state.panKeys) { const d = PAN.get(k); dx += d[0]; dy += d[1]; }
+    for (const k of state.zoomKeys) dz += ZOOM_CODE.get(k);
+    if (dx || dy) rv.moveCam(dx * PAN_SPEED * dt, dy * PAN_SPEED * dt);
+    if (dz) rv.zoomBy(Math.exp(dz * ZOOM_RATE * dt));
   }
 
   // ---------- 键盘 ----------
   function bindKeys() {
     window.addEventListener('keydown', (e) => {
-      if (!state.running) return;
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      // 带 Ctrl / Cmd / Alt 的组合键留给浏览器（刷新、打印、标签页、缩放等），游戏不处理
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const low = normKey(e);
+      if (PAN.has(low)) { e.preventDefault(); state.panKeys.add(low); return; }
+      // 缩放键按物理键位记录：+ 和 = 是同一个键，松开时 e.key 可能已经变了
+      if (ZOOM_CODE.has(e.code)) { e.preventDefault(); state.zoomKeys.add(e.code); return; }
+      if (!state.running) return;
+      if (e.repeat) return;     // 按住不放时的自动重复：不反复切换暂停和倍速
       if (e.code === 'Space') { e.preventDefault(); togglePause(); return; }
-      if (e.key === 'z' || e.key === 'Z') { toggleSpeed(); return; }
-      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { state.renderer.panPixels(-60); return; }
-      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { state.renderer.panPixels(60); return; }
-      if (e.repeat) return;
+      if (low === 'z') { toggleSpeed(); return; }
       const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const i = KEYS.indexOf(k);
       if (i >= 0 && i < ALL.length) { spawn(ALL[i].id); return; }
       if (window.GameUI.onKey) window.GameUI.onKey(k, e);
     });
+    window.addEventListener('keyup', (e) => {
+      state.panKeys.delete(normKey(e));
+      state.zoomKeys.delete(e.code);
+    });
+    // 切换窗口时松开所有按住的键，防止镜头一直走
+    window.addEventListener('blur', () => { state.panKeys.clear(); state.zoomKeys.clear(); });
   }
 
   function togglePause() {
@@ -315,7 +405,7 @@
     state.running = true;
     state.paused = false;
     state.endAt = 0;
-    state.renderer.cam.manual = false;
+    state.renderer.resetCam();
     state.renderer.popups = [];
     hudCache = {};
     if (window.GameUI.onNewGame) window.GameUI.onNewGame(eng);
@@ -328,9 +418,9 @@
 
   function showEnd() {
     const eng = state.eng;
-    const won = eng.winner === 0;
-    $('end-title').textContent = won ? '胜利' : '失败';
-    $('end-title').className = won ? 'win' : 'lose';
+    const won = eng.winner === 0, draw = eng.winner === 'draw';
+    $('end-title').textContent = draw ? '平局' : won ? '胜利' : '失败';
+    $('end-title').className = draw ? 'draw' : won ? 'win' : 'lose';
     $('end-sub').textContent = `用时 ${fmtTime(eng.time)} · 难度：${LEVELS[state.level].label}`;
     const table = $('end-stats');
     const mine = eng.sides[0].spawned, foe = eng.sides[1].spawned;
@@ -372,24 +462,27 @@
   function loop(now) {
     const dt = state.lastT ? Math.min(0.1, (now - state.lastT) / 1000) : 0;
     state.lastT = now;
+    const rv = state.renderer;
+    applyKeys(dt);
     const eng = state.eng;
     if (eng) {
       if (state.running && !state.paused && !eng.ended) eng.update(dt);
       const events = eng.drainEvents();
-      state.renderer.ingest(events);
+      rv.ingest(events);
       if (events.some((e) => e.t === 'end')) state.endAt = now + 1600;
-      state.renderer.draw(eng, dt);
+      rv.draw(eng, dt);
       updateHud();
       updateRoster();
       if (window.GameUI.onFrame) window.GameUI.onFrame(eng);
-      state.renderer.drawMinimap($('minimap'), eng);
+      rv.drawMinimap($('minimap'), eng);
       if (eng.ended && state.endAt && now >= state.endAt) {
         state.endAt = 0;
         state.running = false;
         showEnd();
       }
-    } else if (state.renderer) {
-      state.renderer.drawBackground();
+    } else if (rv) {
+      rv.drawIdle(dt);
+      rv.drawMinimap($('minimap'), null);
     }
     requestAnimationFrame(loop);
   }
@@ -406,6 +499,7 @@
     bindCamera();
     bindKeys();
     bindMenus();
+    syncFollow();
     SR.preload().then(() => {
       drawAvatars();
     });

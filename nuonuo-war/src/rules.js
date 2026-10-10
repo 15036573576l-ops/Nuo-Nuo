@@ -1,14 +1,15 @@
 // 糯糯战记 全局规则（设计稿 v1）：克制倍率、状态、元素反应、经济、水晶
 window.RULES = {
-  lane: { length: 1600, crystalHp: 4000 },
+  // 战场是二维平原。inset：水晶圆心离左右边界的距离；出兵点在自家水晶内侧 spawnDepth 的纵深里，y 方向以 h/2 为中心展开 spawnSpread
+  map: { w: 8000, h: 3200, inset: 420, crystalRadius: 70, crystalHp: 6000, spawnDepth: 240, spawnSpread: 900 },
 
   // 水晶自带炮塔，保证没有远程的阵容也不会被飞行单位白打
   crystal: { atk: 25, aspd: 1.0, dmg: 'pierce', range: 220, canHitAir: true },
 
   economy: {
-    startGold: 200,
-    income: 10, // 每秒
-    supplyCap: 20,
+    startGold: 300,
+    income: 25, // 每秒
+    supplyCap: 120,
     corpseSeconds: 6,
   },
 

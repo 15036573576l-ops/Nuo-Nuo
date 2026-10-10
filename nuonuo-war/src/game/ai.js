@@ -12,6 +12,8 @@
   };
   // 各梯队最适合登场的时间点（秒）
   const PEAK = { T3: 25, T2: 90, T1: 150, 'T0.5': 210, T0: 270 };
+  // 溅射兵种：敌方扎堆时优先考虑
+  const SPLASH_IDS = ['goblin', 'seren', 'rex', 'olin', 'worm'];
 
   // 克制文本匹配：strongVs / weakVs 里写的是兵种名或定位词，用包含关系判断
   function matches(list, def) {
@@ -102,9 +104,9 @@
       const income = R.economy.income * S.incomeMul;
       const crowd = S.supplyUsed / R.economy.supplyCap;
       const TIERS = ['T3', 'T2', 'T1', 'T0.5', 'T0'];
-      // 敌人离我方水晶多近：用来判断“告急”
-      const myFront = eng.front[side];
-      const danger = eng.units.some((u) => u.side !== side && eng.alive(u) && Math.abs(u.x - myFront) < 350);
+      // 敌人离我方水晶多近：用来判断“告急”（平原版：到我方水晶圆心的距离，1100 像素以内算告急）
+      const own = eng.crystals[side];
+      const danger = eng.units.some((u) => u.side !== side && eng.alive(u) && Math.hypot(u.x - own.x, u.y - own.y) < 1100);
 
       const scored = UNITS.map((def) => {
         let s = 0;
@@ -120,6 +122,8 @@
           if (matches(def.weakVs, f.def)) s -= 0.8 * w;        // 我怕它
           if (matches(f.def.strongVs, def)) s -= 0.8 * w;      // 它克制我
         }
+        // 敌方扎堆（超过 40 个单位）时，溅射兵种加分，人越多加得越多
+        if (foeCount > 40 && SPLASH_IDS.indexOf(def.id) >= 0) s += 0.8 * Math.min(3, (foeCount - 40) / 40 + 1);
         const fl = Math.min(foeFlyers, 3);
         if (fl) s += (def.range >= R.rangedThreshold && !def.groundOnly ? 0.5 : -0.5) * fl;
         if (def.range >= R.rangedThreshold) s += mRanged < mMelee * 0.7 ? 0.6 : -0.1;

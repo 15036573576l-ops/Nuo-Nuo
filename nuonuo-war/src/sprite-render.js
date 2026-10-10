@@ -38,6 +38,34 @@
     return c;
   }
 
+  // 受击白闪用的高亮副本（亮度 ×2.4，和原来的 brightness(2.4) 一样）：每张图只算一次，之后直接 drawImage
+  // 不用 ctx.filter：滤镜每帧画一次很慢（软件渲染下一张都要几十毫秒）
+  const BRIGHT = new Map();
+  function brightOf(im) {
+    if (BRIGHT.has(im)) return BRIGHT.get(im);
+    if (!im.complete || !im.naturalWidth) return null;
+    let out = null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = im.naturalWidth; c.height = im.naturalHeight;
+      const x = c.getContext('2d', { willReadFrequently: true });
+      x.drawImage(im, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height);
+      const p = d.data;
+      for (let i = 0; i < p.length; i += 4) {
+        p[i] = Math.min(255, p[i] * 2.4);
+        p[i + 1] = Math.min(255, p[i + 1] * 2.4);
+        p[i + 2] = Math.min(255, p[i + 2] * 2.4);
+      }
+      x.putImageData(d, 0, 0);
+      out = c;
+    } catch (e) {
+      out = null;   // 读不了像素（极少见）就不闪白，照常画
+    }
+    BRIGHT.set(im, out);
+    return out;
+  }
+
   function defaultHand(w, h) {
     if (w >= 32) return [22, h - 10];
     if (h <= 16) return [11, 12];
@@ -173,6 +201,7 @@
   //   period: 秒     攻击动画按这段时长拉伸播完，出手帧 = release 帧
   //   flash: true    受击白闪
   //   alpha: 0~1     透明度（尸体淡出、地下蠕虫）
+  //   noShadow: true 不画精灵自带的脚下影子（渲染层自己画了地面阴影时用，避免画两次）
   function drawSheetHero(ctx, hero, state, t, x, y, s, face, opt) {
     const sh = window.HD_SHEETS[hero.sheet];
     const o = opt || {};
@@ -205,12 +234,14 @@
     ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
     ctx.translate(Math.round(x), Math.round(y));
     ctx.scale(face * s, s);
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, sh.bodyW * 0.45, 2.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (o.flash) ctx.filter = 'brightness(2.4)';
-    ctx.drawImage(im, idx * sh.fw, 0, sh.fw, sh.fh, -sh.cx, -sh.foot, sh.fw, sh.fh);
+    if (!o.noShadow) {
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, sh.bodyW * 0.45, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const src = o.flash ? (brightOf(im) || im) : im;
+    ctx.drawImage(src, idx * sh.fw, 0, sh.fw, sh.fh, -sh.cx, -sh.foot, sh.fw, sh.fh);
     ctx.restore();
     const mx = x + face * sh.bodyW * 0.55 * s;
     const my = y - sh.bodyH * 0.55 * s;

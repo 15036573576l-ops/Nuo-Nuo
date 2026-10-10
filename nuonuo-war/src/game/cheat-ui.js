@@ -11,7 +11,7 @@
   const cfg = {
     infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false,
     incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
-    crystalMax: [R.lane.crystalHp, R.lane.crystalHp],
+    crystalMax: [R.map.crystalHp, R.map.crystalHp],
   };
 
   const eng = () => G.state.eng;
@@ -201,7 +201,7 @@
   function cast(i) {
     const e = eng();
     if (!e || !G.state.running || G.state.paused || e.ended) return;
-    const r = C.castManual(e, 0, i);
+    const r = C.manualCast(e, 0, i);
     if (r === 'cooldown') G.toast('技能冷却中');
     else if (r === 'nosatan') G.toast('撒旦不在场上');
   }
@@ -213,7 +213,7 @@
   };
   G.onNewGame = (e) => {
     pushCheats(e);
-    for (let s = 0; s < 2; s++) if (cfg.crystalMax[s] !== R.lane.crystalHp) e.setCrystal(s, cfg.crystalMax[s], cfg.crystalMax[s]);
+    for (let s = 0; s < 2; s++) if (cfg.crystalMax[s] !== R.map.crystalHp) e.setCrystal(s, cfg.crystalMax[s], cfg.crystalMax[s]);
     if (!$('cheat').classList.contains('hidden')) render();
   };
   let lastPanel = 0;
@@ -240,9 +240,10 @@
   };
 
   $('btn-cheat').addEventListener('click', toggle);
-  // C 键在没开局时也能打开菜单
+  // C 键在没开局时也能打开菜单（按住不放不反复开关；带 Ctrl / Cmd / Alt 的组合键留给浏览器）
   window.addEventListener('keydown', (ev) => {
     if (G.state.running) return;
+    if (ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.target && ev.target.tagName === 'INPUT') return;
     if (ev.key === 'c' || ev.key === 'C') toggle();
   });
