@@ -8,13 +8,35 @@ SRC = ROOT / "assets/hd-src"
 
 # 每个角色用到的动作：state -> (文件名, 帧率, 出手帧)；fw 是自动推断不准时手填的帧宽
 SHEETS = {
-    "evil_wizard_2": {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack1", 12, 5), "hit": ("Take hit", 10)},
-    "evil_wizard":   {"idle": ("Idle", 10), "run": ("Move", 12), "attack": ("Attack", 12, 5), "hit": ("Take Hit", 10)},
-    "wizard_pack":   {"fw": 231, "idle": ("Idle", 8),  "run": ("Run", 12),  "attack": ("Attack1", 12, 5), "hit": ("Hit", 10)},
-    "king_2":        {"fw": 160, "idle": ("Idle", 10), "run": ("Run", 12),  "attack": ("Attack1", 12, 2), "hit": ("Take Hit", 10)},
-    "martial_hero":  {"idle": ("Idle", 10), "run": ("Run", 12),  "attack": ("Attack1", 14, 4), "hit": ("Take Hit", 10)},
-    "huntress_2":    {"idle": ("Idle", 10), "run": ("Run", 12),  "attack": ("Attack", 10, 4), "hit": ("Get Hit", 10)},
-    "hero_knight":   {"idle": ("Idle", 10), "run": ("Run", 12),  "attack": ("Attack1", 12, 3), "hit": ("Take Hit", 10)},
+    "rat":            {"idle": ("idle", 10), "run": ("run", 14), "attack": ("attack_bite", 14, 3), "hit": ("hurt", 10), "death": ("rat-death", 10)},
+    "skeleton":       {"idle": ("Idle", 8), "run": ("Walk", 10), "attack": ("Attack", 14, 6), "hit": ("Take Hit", 10), "death": ("Death", 10)},
+    "mushroom":       {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack", 12, 6), "hit": ("Take Hit", 10), "death": ("Death", 10)},
+    "slime":          {"idle": ("idle", 10), "run": ("walk", 10), "attack": ("attack", 14, 6), "hit": ("hurt", 10), "death": ("death", 12)},
+    "goblin":         {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack", 12, 6), "hit": ("Take Hit", 10), "death": ("Death", 10)},
+    "huntress_2":     {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack", 10, 4), "hit": ("Get Hit", 10), "death": ("Death", 10)},
+    "huntress":       {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack3", 12, 4), "hit": ("Take hit", 10), "death": ("Death", 10)},
+    "bat":            {"idle": ("fly", 12), "run": ("fly", 14), "attack": ("attack", 14, 6), "hit": ("hurt", 10), "death": ("death", 10)},
+    "warrior_3":      {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack1", 12, 2), "hit": ("Get Hit", 10), "death": ("Death", 10)},
+    "mimic":          {"idle": ("Idle_closed", 6), "run": ("walk", 10), "attack": ("attack_1", 12, 4), "hit": ("hurt", 10), "death": ("death", 10)},
+    "martial_hero":   {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack1", 14, 4), "hit": ("Take Hit", 10), "death": ("Death", 10)},
+    "evil_wizard":    {"idle": ("Idle", 10), "run": ("Move", 12), "attack": ("Attack", 12, 5), "hit": ("Take Hit", 10), "death": ("Death", 10)},
+    "hero_knight":    {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack1", 12, 3), "hit": ("Take Hit", 10), "death": ("Death", 12)},
+    "fire_worm":      {"idle": ("Idle", 10), "run": ("Walk", 10), "attack": ("Attack", 12, 10), "hit": ("Get Hit", 10), "death": ("Death", 10)},
+    "martial_hero_3": {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack1", 14, 3), "hit": ("Take Hit", 10), "death": ("Death", 10)},
+    "evil_wizard_2":  {"idle": ("Idle", 10), "run": ("Run", 12), "attack": ("Attack1", 12, 5), "hit": ("Take hit", 10), "death": ("Death", 10)},
+    "wizard_pack":    {"fw": 231, "idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack1", 12, 5), "hit": ("Hit", 10), "death": ("Death", 10)},
+    "martial_hero_2": {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack1", 12, 3), "hit": ("Take hit", 10), "death": ("Death", 10)},
+    "king_1":         {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack_1", 12, 3), "hit": ("Hit", 10), "death": ("Death", 10)},
+    "warrior_1":      {"fw": 184, "idle": ("Idle", 8), "run": ("Run", 10), "attack": ("Attack1", 10, 2), "hit": ("Hit", 10), "death": ("Death", 10)},
+}
+
+# 投射物条带：key -> (文件, 帧数)
+PROJECTILES = {
+    "arrow": ("huntress_2", "Arrow", 1),
+    "spear": ("huntress", "Spear move", 12),
+    "bomb": ("goblin", "Bomb_sprite", 19),
+    "spore": ("mushroom", "Projectile_sprite", 8),
+    "fireball": ("fire_worm", "Fireball", 6),
 }
 
 
@@ -46,6 +68,13 @@ for key, anims in SHEETS.items():
             meta["anims"][st]["release"] = a[2]
     out[key] = meta
     print(key, meta["fw"], meta["fh"], "body", meta["bodyW"], meta["bodyH"], {k: v["n"] for k, v in meta["anims"].items()})
+
+proj = {}
+for k, (d, f, n) in PROJECTILES.items():
+    im = Image.open(SRC / d / f"{f}.png")
+    proj[k] = {"src": f"hd/{d}/{f}", "n": n, "fw": im.width // n, "fh": im.height}
+    print("proj", k, proj[k])
+out["_projectiles"] = proj
 
 js = "// 由 tools/build_hd.py 生成，不要手改\nwindow.HD_SHEETS = " + json.dumps(out, ensure_ascii=False, indent=1) + ";\n"
 (ROOT / "src/hd-sheets.js").write_text(js, encoding="utf-8")
