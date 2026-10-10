@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>糯糯战记</title>
+<style>
+  :root {
+    --bg: #0d1224;
+    --panel: #171d33;
+    --panel-2: #222a47;
+    --line: #34405f;
+    --text: #eef2ff;
+    --muted: #9aa5c4;
+    --gold: #ffd166;
+    --me: #3ea6ff;
+    --foe: #ff5a5a;
+    --ok: #8ee39b;
+    --no: #7a8199;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) { --bg: #0d1224; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+  /* 顶部 HUD */
+  #hud { display: grid; grid-template-columns: 1fr minmax(180px, 320px) 1fr; align-items: center; gap: 10px; padding: 6px 12px; background: linear-gradient(#141a2f, #10152a); border-bottom: 1px solid var(--line); min-height: 52px; }
+  .hp { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .hp .tag { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .hp .bar { position: relative; flex: 1; height: 12px; background: #000a; border: 1px solid #0008; border-radius: 6px; overflow: hidden; }
+  .hp .fill { position: absolute; inset: 0 auto 0 0; width: 100%; transition: width .2s; }
+  .hp .num { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; color: var(--text); }
+  .hp.me .fill { background: linear-gradient(90deg, #2a7fd6, var(--me)); }
+  .hp.foe { flex-direction: row-reverse; }
+  .hp.foe .fill { background: linear-gradient(270deg, #c93a3a, var(--foe)); right: 0; left: auto; }
+  #center { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  #econ { display: flex; gap: 14px; align-items: baseline; font-size: 14px; white-space: nowrap; }
+  #gold { color: var(--gold); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+  #income { font-size: 12px; color: var(--muted); }
+  #pop { font-variant-numeric: tabular-nums; }
+  #minimap { width: 100%; max-width: 320px; height: 16px; border-radius: 4px; display: block; cursor: pointer; }
+  #right { position: absolute; right: 10px; top: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
+  #clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 46px; text-align: right; }
+  .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: linear-gradient(#ffd166, #e9a93b); color: #2b1d05; border: none; font-weight: 800; padding: 10px 22px; font-size: 16px; }
+  .btn.ghost { background: transparent; }
+
+  /* 战场 */
+  #stage { position: relative; flex: 1; min-height: 0; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  #cv:active { cursor: grabbing; }
+  #toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: #000c; color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+
+  /* 出兵栏 */
+  #roster { display: flex; gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); overflow-x: auto; overscroll-behavior-x: contain; background: #0f1426; border-top: 1px solid var(--line); scrollbar-width: thin; }
+  .card { position: relative; flex: 0 0 74px; height: 98px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--tier, #888); border-radius: 8px; padding: 4px 2px 3px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; overflow: hidden; touch-action: manipulation; transition: transform .08s; }
+  .card:active { transform: scale(.97); }
+  .card canvas.av { width: 48px; height: 48px; image-rendering: pixelated; }
+  .card .nm { font-size: 12px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70px; }
+  .card .cost { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .card .cost b { color: var(--gold); }
+  .card .key { position: absolute; left: 3px; top: 3px; font-size: 10px; background: #000a; border-radius: 4px; padding: 0 4px; color: #cdd6f4; }
+  .card .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,.55); pointer-events: none; transition: height .1s linear; }
+  .card.no { color: var(--no); }
+  .card.no canvas.av { opacity: .45; }
+  .card.no .cost b { color: #8d7a4a; }
+  .card.flash { box-shadow: 0 0 0 2px var(--ok) inset; }
+  .card.bad { box-shadow: 0 0 0 2px var(--foe) inset; }
+  .sep { flex: 0 0 4px; }
+
+  /* 悬浮简介 */
+  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); background: #0c1020f2; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 8px 24px #0009; }
+  #tip h3 { margin: 0 0 2px; font-size: 16px; }
+  #tip h3 small { color: var(--muted); font-size: 12px; font-weight: 400; }
+  #tip .meta { color: var(--muted); font-size: 12px; }
+  #tip .sk { color: #ffe9b0; }
+  #tip .lore { color: var(--muted); font-style: italic; margin: 4px 0 0; }
+  #tip ul { margin: 2px 0; padding-left: 16px; }
+
+  /* 覆盖层 */
+  .overlay { position: absolute; inset: 0; z-index: 30; background: #050813d9; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.hidden { display: none; }
+  .panel { width: min(520px, 100%); max-height: 100%; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; box-shadow: 0 16px 48px #000a; }
+  .panel h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: 2px; background: linear-gradient(90deg, #ffe9a8, #ffb36b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .panel h2 { margin: 0 0 10px; font-size: 22px; }
+  .panel p { margin: 6px 0; color: #d7dcef; line-height: 1.6; font-size: 14px; }
+  .panel .muted { color: var(--muted); font-size: 13px; }
+  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 16px; }
+  .levels button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px; text-align: center; }
+  .levels button b { display: block; font-size: 16px; }
+  .levels button small { color: var(--muted); font-size: 11px; }
+  .levels button.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; justify-content: flex-end; }
+  table.stats { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+  table.stats th, table.stats td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+  table.stats th:first-child, table.stats td:first-child { text-align: left; }
+  .win { color: var(--ok); }
+  .lose { color: var(--foe); }
+  #rotate { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg); align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; }
+  @media (orientation: portrait) and (max-width: 900px) { #rotate { display: flex; } }
+  @media (max-width: 700px) {
+    #hud { grid-template-columns: 1fr 1fr; gap: 6px; }
+    #center { grid-column: 1 / -1; order: -1; }
+    #econ { font-size: 13px; gap: 10px; }
+    #gold { font-size: 16px; }
+    #right { gap: 6px; }
+    .btn { padding: 4px 9px; font-size: 12px; }
+    .card { flex-basis: 66px; height: 90px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="hp me"><span class="tag">我方水晶</span><div class="bar"><div class="fill" id="hp-me"></div></div><span class="num" id="hp-me-n">4000</span></div>
+    <div id="center">
+      <div id="econ"><span id="gold">200</span><span id="income">+10/秒</span><span id="pop">人口 0/20</span></div>
+      <canvas id="minimap"></canvas>
+    </div>
+    <div class="hp foe"><span class="tag">电脑水晶</span><div class="bar"><div class="fill" id="hp-foe"></div></div><span class="num" id="hp-foe-n">4000</span></div>
+  </header>
+  <main id="stage">
+    <canvas id="cv"></canvas>
+    <div id="right">
+      <span id="clock">00:00</span>
+      <button class="btn" id="btn-speed" title="切换 1 倍速 / 2 倍速（Z）">1×</button>
+      <button class="btn" id="btn-pause" title="暂停（空格）">暂停</button>
+    </div>
+    <div id="toast"></div>
+    <div id="tip"></div>
+  </main>
+  <nav id="roster"></nav>
+
+  <section class="overlay" id="ov-start">
+    <div class="panel">
+      <h1>糯糯战记</h1>
+      <p class="muted">单机兵线对战。花金币出兵，兵会自己往前走、自己打；先打爆对方水晶的一方获胜。</p>
+      <p class="muted">选择电脑难度</p>
+      <div class="levels" id="levels">
+        <button data-level="easy"><b>简单</b><small>电脑收入 ×0.8，出兵随意</small></button>
+        <button data-level="normal" class="on"><b>普通</b><small>会克制你的兵种</small></button>
+        <button data-level="hard"><b>困难</b><small>收入 ×1.15，会抢经济、攒钱大招</small></button>
+      </div>
+      <p>出兵：点击下方兵种，或按键盘 <b>1–0</b>、<b>Q–P</b>。长按（或鼠标悬停）看兵种简介。</p>
+      <p>镜头：拖动战场、左右方向键或 A / D 移动；点小地图也能跳。空格暂停，Z 切换 2 倍速。</p>
+      <div class="actions"><button class="btn primary" id="btn-start">开始对战</button></div>
+    </div>
+  </section>
+
+  <section class="overlay hidden" id="ov-pause">
+    <div class="panel">
+      <h2>已暂停</h2>
+      <div class="actions"><button class="btn primary" id="btn-resume">继续</button></div>
+    </div>
+  </section>
+
+  <section class="overlay hidden" id="ov-end">
+    <div class="panel">
+      <h2 id="end-title">胜利</h2>
+      <p class="muted" id="end-sub"></p>
+      <table class="stats" id="end-stats"></table>
+      <div class="actions">
+        <button class="btn" id="btn-menu">换难度</button>
+        <button class="btn primary" id="btn-again">再来一局</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="rotate">请把手机横过来玩<br>糯糯战记需要横屏</div>
+</div>
+<script>/*SPRITES*/</script>
+<!--SCRIPTS-->
+</body>
+</html>

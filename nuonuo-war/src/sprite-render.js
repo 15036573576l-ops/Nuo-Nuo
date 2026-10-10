@@ -66,11 +66,11 @@
 
   /**
    * 画一个英雄。(x, y) 是脚底中心点，单位为画布像素；s 是像素放大倍数。
-   * state: 'idle' | 'run' | 'attack' | 'hit'；t: 秒；face: 1 朝右 / -1 朝左
+   * state: 'idle' | 'run' | 'attack' | 'hit' | 'death'；t: 秒；face: 1 朝右 / -1 朝左
    * 返回本帧是否到达出手点（用于发射投射物）和武器尖端位置。
    */
-  function drawHero(ctx, hero, state, t, x, y, s, face = 1) {
-    if (hero.sheet) return drawSheetHero(ctx, hero, state, t, x, y, s, face);
+  function drawHero(ctx, hero, state, t, x, y, s, face = 1, opt) {
+    if (hero.sheet) return drawSheetHero(ctx, hero, state, t, x, y, s, face, opt);
     const kind = state === 'run' ? 'run' : 'idle';
     const fr = frames(hero.sprite, kind);
     if (!fr.length || !fr[0].complete) return {};
@@ -168,11 +168,23 @@
 
   // ---------- 高清横版条带图角色 ----------
   // 素材自带待机/跑步/攻击/受击帧，按 HD_SHEETS 里的帧宽和脚底锚点来画
-  function drawSheetHero(ctx, hero, state, t, x, y, s, face) {
+  // opt（游戏用，图鉴不传）：
+  //   once: true     动画只播一次，停在最后一帧（死亡、受击）
+  //   period: 秒     攻击动画按这段时长拉伸播完，出手帧 = release 帧
+  //   flash: true    受击白闪
+  //   alpha: 0~1     透明度（尸体淡出、地下蠕虫）
+  function drawSheetHero(ctx, hero, state, t, x, y, s, face, opt) {
     const sh = window.HD_SHEETS[hero.sheet];
-    let a = sh.anims[state === 'run' ? 'run' : state === 'attack' ? 'attack' : state === 'hit' ? 'hit' : 'idle'];
+    const o = opt || {};
+    const key = state === 'run' ? 'run' : state === 'attack' ? 'attack' : state === 'hit' ? 'hit' : state === 'death' ? 'death' : 'idle';
+    let a = sh.anims[key];
     let idx, release = false;
-    if (state === 'attack' || state === 'hit') {
+    if (state === 'death' || (o.once && (state === 'hit' || state === 'attack'))) {
+      idx = Math.min(a.n - 1, Math.floor(t * a.fps));
+    } else if (o.period && state === 'attack') {
+      idx = Math.min(a.n - 1, Math.floor((t / o.period) * a.n));
+      release = idx === a.release;
+    } else if (state === 'attack' || state === 'hit') {
       const dur = a.n / a.fps;
       const period = state === 'attack' ? Math.max(dur, 1 / hero.aspd) : Math.max(dur, 1.0);
       const local = t % period;
@@ -190,12 +202,14 @@
     if (!im || !im.complete) return {};
     ctx.save();
     ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
     ctx.translate(Math.round(x), Math.round(y));
     ctx.scale(face * s, s);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath();
     ctx.ellipse(0, 0, sh.bodyW * 0.45, 2.5, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (o.flash) ctx.filter = 'brightness(2.4)';
     ctx.drawImage(im, idx * sh.fw, 0, sh.fw, sh.fh, -sh.cx, -sh.foot, sh.fw, sh.fh);
     ctx.restore();
     const mx = x + face * sh.bodyW * 0.55 * s;
