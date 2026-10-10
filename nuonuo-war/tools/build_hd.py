@@ -27,6 +27,7 @@ SHEETS = {
     "wizard_pack":    {"fw": 231, "idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack1", 12, 5), "hit": ("Hit", 10), "death": ("Death", 10)},
     "martial_hero_2": {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack1", 12, 3), "hit": ("Take hit", 10), "death": ("Death", 10)},
     "king_1":         {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack_1", 12, 3), "hit": ("Hit", 10), "death": ("Death", 10)},
+    "satan":          {"fw": 288, "idle": ("Idle", 8), "run": ("Walk", 12), "attack": ("Cleave", 16, 9), "hit": ("Hit", 12), "death": ("Death", 12)},
     "warrior_1":      {"fw": 184, "idle": ("Idle", 8), "run": ("Run", 10), "attack": ("Attack1", 10, 2), "hit": ("Hit", 10), "death": ("Death", 10)},
 }
 

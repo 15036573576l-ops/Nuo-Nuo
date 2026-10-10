@@ -260,7 +260,7 @@
       for (const b of eng.bodies) {
         const sh = SH[b.sheet];
         if (!sh) continue;
-        const S = this.zoom * 1.3 * (b.small ? 0.7 : 1);
+        const S = this.zoom * 1.3 * (b.small ? 0.7 : 1) * (b.scale || 1);
         const left = b.life - b.age;
         const alpha = Math.max(0, Math.min(1, left / (b.corpse ? 1.5 : 0.4)));
         SR.drawHero(this.ctx, { sheet: b.sheet, aspd: 1 }, 'death', b.age, this.sx(b.x), this.groundY + b.uy * this.zoom, S, b.side === 0 ? 1 : -1, { alpha });
@@ -271,10 +271,29 @@
       const sh = SH[u.sheet];
       if (!sh) return;
       const ctx = this.ctx;
-      const S = this.zoom * 1.3 * (u.small ? 0.7 : 1);
+      const S = this.zoom * 1.3 * (u.small ? 0.7 : 1) * (u.def.scale || 1);
       const px = this.sx(u.x);
       const py = this.groundY + u.uy * this.zoom;
       const p = pose(u);
+      if (u.uid === 'satan') {
+        // 炼狱光环：脚下一圈呼吸的暗红火光，半径就是光环的 200
+        const k = 0.5 + 0.5 * Math.sin(this.time * 3);
+        const r = 200 * this.zoom;
+        const g = ctx.createRadialGradient(px, py, 10, px, py, r);
+        g.addColorStop(0, `rgba(255,80,30,${0.35 + 0.15 * k})`);
+        g.addColorStop(1, 'rgba(120,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(px, py, r, r * 0.22, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (u.invuln > 0) {
+          ctx.strokeStyle = `rgba(255,200,120,${0.6 + 0.4 * k})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.ellipse(px, py - sh.bodyH * S * 0.5, sh.bodyW * S * 0.7, sh.bodyH * S * 0.62, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
       const alpha = p.opt.alpha == null ? 1 : p.opt.alpha;
       if (alpha > 0) SR.drawHero(ctx, u.def, p.state, p.t, px, py, S, u.dir, p.opt);
       if (u.bones) return;
@@ -434,6 +453,66 @@
           ctx.beginPath();
           ctx.ellipse(sx, sy - 30 * z, 36 * z, 20 * z, 0, 0, Math.PI * 2);
           ctx.fill();
+        } else if (f.kind === 'meteor') {
+          // 陨石：从左上方斜着砸下来，落地后炸开
+          const fall = Math.min(1, k / 0.45);
+          const mx = sx - 120 * z * (1 - fall), my = this.groundY - 260 * z * (1 - fall) - 30 * z;
+          if (fall < 1) {
+            const gr = ctx.createLinearGradient(mx, my, mx - 60 * z, my - 120 * z);
+            gr.addColorStop(0, 'rgba(255,230,150,1)');
+            gr.addColorStop(1, 'rgba(255,80,20,0)');
+            ctx.strokeStyle = gr;
+            ctx.lineWidth = 10 * z;
+            ctx.beginPath();
+            ctx.moveTo(mx, my);
+            ctx.lineTo(mx - 60 * z, my - 120 * z);
+            ctx.stroke();
+            ctx.fillStyle = '#fff1b8';
+            ctx.beginPath();
+            ctx.arc(mx, my, 9 * z, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            const e = (k - 0.45) / 0.55;
+            ctx.globalAlpha = 1 - e;
+            ctx.fillStyle = 'rgba(255,120,40,0.85)';
+            ctx.beginPath();
+            ctx.ellipse(sx, this.groundY - 20 * z, (20 + 70 * e) * z, (14 + 40 * e) * z, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,240,180,0.9)';
+            ctx.beginPath();
+            ctx.ellipse(sx, this.groundY - 20 * z, (10 + 30 * e) * z, (8 + 18 * e) * z, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (f.kind === 'darkwave') {
+          // 深渊威压：一圈紫黑色的冲击波扫过整个画面
+          const r = (40 + k * this.w * 1.2);
+          ctx.strokeStyle = `rgba(200,107,255,${0.9 * fade})`;
+          ctx.lineWidth = 18 * z * fade + 2;
+          ctx.beginPath();
+          ctx.ellipse(sx, this.groundY - 40 * z, r, r * 0.35, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(40,0,60,${0.7 * fade})`;
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          ctx.ellipse(sx, this.groundY - 40 * z, r * 0.85, r * 0.3, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (f.kind === 'soul') {
+          // 灵魂收割：一缕青白色的魂从身上飘起来
+          const yy = sy - 40 * z - 120 * z * k;
+          ctx.globalAlpha = fade;
+          ctx.fillStyle = '#c8f6ff';
+          ctx.beginPath();
+          ctx.ellipse(sx + Math.sin(k * 12) * 6 * z, yy, 9 * z, 14 * z, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(120,220,255,0.5)';
+          ctx.beginPath();
+          ctx.ellipse(sx, yy + 18 * z, 5 * z, 12 * z, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (f.kind === 'tint') {
+          // 全屏染色闪一下
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.fillStyle = `rgba(${f.color},${0.35 * fade})`;
+          ctx.fillRect(0, 0, this.cv.width, this.cv.height);
         } else if (f.kind === 'slash') {
           const len = f.len * z, d = f.dir;
           ctx.strokeStyle = `rgba(255,255,255,${fade})`;

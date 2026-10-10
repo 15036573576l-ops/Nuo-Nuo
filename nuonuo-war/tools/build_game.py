@@ -12,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = [
     "src/rules.js",
     "src/units.js",
+    "src/special.js",
     "src/hd-sheets.js",
     "src/sprite-render.js",
     "src/game/combat.js",
@@ -19,6 +20,7 @@ SCRIPTS = [
     "src/game/ai.js",
     "src/game/render.js",
     "src/game/ui.js",
+    "src/game/cheat-ui.js",
 ]
 
 sprites = {}

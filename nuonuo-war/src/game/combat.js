@@ -5,7 +5,8 @@
   const R = window.RULES;
   const UNITS = window.UNITS;
   const BY_ID = {};
-  UNITS.forEach((d) => { BY_ID[d.id] = d; });
+  UNITS.concat(window.SPECIAL_UNITS || []).forEach((d) => { BY_ID[d.id] = d; });
+  const CC_IMMUNE = { stun: 1, frozen: 1, root: 1, chill: 1, weaken: 1, vulnerable: 1 };
 
   const DIR = (side) => (side === 0 ? 1 : -1);
   const hasTag = (u, tag) => u.def.tags.indexOf(tag) >= 0;
@@ -54,6 +55,7 @@
     const def = R.statuses[id];
     if (!def) return false;
     if (id === 'poison' && hasTag(u, 'undead')) return false;     // 不死免疫中毒
+    if (u.def.ccImmune && CC_IMMUNE[id]) return false;            // 撒旦：魔王之躯
     if (id === 'weaken' && eng.rexAura(u)) return false;          // 王之威仪免疫衰弱
     switch (id) {
       case 'burn':
@@ -138,6 +140,7 @@
   // 每 tick 的状态处理：持续伤害、计时、免疫、无敌
   function tickStatuses(eng, u, dt) {
     if (u.bones) return;
+    if (eng.cheats && eng.cheats.godMode[u.side]) { delete u.st.burn; delete u.st.poison; }
     if (has(u, 'burn')) takeHp(eng, u, R.statuses.burn.dps * stacksOf(u, 'burn') * dt, true);
     if (has(u, 'poison')) takeHp(eng, u, R.statuses.poison.dps * stacksOf(u, 'poison') * dt, true); // 无视护甲
     for (const id of Object.keys(u.st)) {
@@ -158,8 +161,11 @@
     if (!tgt || tgt.dead) return 0;
     const elem = o.element !== undefined ? o.element : src && src.def ? src.def.element : null;
 
+    const cheats = eng.cheats;
+    const cheatMul = cheats && src && src.side != null ? cheats.dmgMul[src.side] : 1;
     if (tgt.isCrystal) {
-      const dmg = base * armorMul(tgt, dmgType);
+      if (cheats && cheats.invuln[tgt.side]) return 0;
+      const dmg = base * armorMul(tgt, dmgType) * cheatMul;
       tgt.hp -= dmg;
       eng.emit({ t: 'num', x: tgt.x, uy: 0, v: Math.round(dmg), color: '#ffd166' });
       return dmg;
@@ -208,7 +214,8 @@
     if (has(tgt, 'vulnerable')) mul *= R.statuses.vulnerable.damageTakenMul;
     if (dmgType === 'pierce' && eng.brownShield(tgt)) mul *= 0.3;
 
-    let dmg = base * mul;
+    if (cheats && cheats.godMode[tgt.side]) return 0;
+    let dmg = base * mul * cheatMul;
     const sh = st(tgt, 'holyShield');
     if (sh && sh.absorb > 0 && dmg > 0) {
       const a = Math.min(sh.absorb, dmg);
@@ -274,6 +281,15 @@
   // ---------- 死亡特性 ----------
   // 返回 true 表示没死，进入骨堆
   function tryBones(eng, u) {
+    if (u.uid === 'satan' && !u.reviveUsed) {
+      u.reviveUsed = true;
+      u.hp = u.maxHp;
+      u.invuln = 3;
+      u.st = {};
+      eng.addFx({ kind: 'ring', x: u.x, uy: u.uy, color: '#ff4d2e', r: 260, dur: 0.9 });
+      eng.emit({ t: 'react', x: u.x, uy: u.uy, text: '不灭', color: '#ff7a3d' });
+      return true;
+    }
     if (u.uid !== 'skeleton' || u.summon || u.reformUsed) return false;
     u.bones = true;
     u.bonesT = 3;
@@ -557,7 +573,88 @@
     }
   }
 
+  // ---------- 撒旦：炼狱光环（引擎每 tick 调用）和三个手动技能 ----------
+  function satanAura(eng, u, dt) {
+    u.auraT = (u.auraT || 0) - dt;
+    if (u.auraT > 0) return;
+    u.auraT = 0.5;
+    for (const e of eng.units.slice()) {
+      if (e.side === u.side || !eng.targetable(e) || Math.abs(e.x - u.x) > 200) continue;
+      damage(eng, u, e, 30, 'magic', { skill: true, element: 'fire', noReaction: true });
+      applyStatus(eng, e, 'burn', { stacks: 1 });
+    }
+  }
+
+  const SATAN_SUMMON = Object.assign({}, BY_ID.skeleton, { hp: 300, atk: 30, traits: [], skill: null, cost: 0 });
+
+  const MANUAL = {
+    meteor(eng, sat) {
+      for (const e of eng.units.slice()) {
+        if (e.side === sat.side || !(eng.targetable(e) || e.burrowed)) continue;
+        eng.addFx({ kind: 'meteor', x: e.x, uy: e.uy, dur: 0.7 });
+        damage(eng, sat, e, 400, 'magic', { skill: true, element: 'fire' });
+        applyStatus(eng, e, 'burn', { stacks: 3 });
+      }
+      const c = eng.crystals[1 - sat.side];
+      if (c.hp > 0) {
+        damage(eng, sat, c, 500 / R.damageMatrix.magic.heavy, 'magic', { skill: true });
+        eng.addFx({ kind: 'meteor', x: eng.front[c.side], uy: 0, dur: 0.7 });
+      }
+      eng.addFx({ kind: 'tint', color: '255,90,30', dur: 0.5 });
+    },
+    dread(eng, sat) {
+      for (const e of eng.units.slice()) {
+        if (e.side === sat.side || e.dead || e.pendingDeath || e.bones) continue;
+        e.charge = null;
+        interrupt(eng, e, 'stun');
+        e.st.stun = { t: 4 };
+        e.imm.stun = 4;
+        e.x = clampX(e.x - DIR(e.side) * 180);
+        e.hitT = 0;
+      }
+      eng.addFx({ kind: 'darkwave', x: sat.x, uy: sat.uy, dur: 0.9 });
+      eng.addFx({ kind: 'tint', color: '120,40,180', dur: 0.8 });
+    },
+    reap(eng, sat) {
+      let souls = 0;
+      for (const e of eng.units.slice()) {
+        if (e.side === sat.side || e.dead || e.pendingDeath) continue;
+        if (e.bones) { shatter(eng, e); continue; }
+        if (e.hp > e.maxHp * 0.4) continue;
+        eng.addFx({ kind: 'soul', x: e.x, uy: e.uy, dur: 1.1 });
+        e.hp = 0;
+        e.reformUsed = true;
+        e.reviveUsed = true;
+        delete e.st.unyielding;
+        e.invuln = 0;
+        eng.markDead(e);
+        if (souls < 8) eng.addUnit(sat.side, SATAN_SUMMON, { x: e.x, uy: e.uy, summon: true, life: 20 });
+        souls++;
+      }
+      eng.sides[sat.side].gold += 25 * souls;
+      heal(sat, sat.maxHp * 0.05 * souls);
+      eng.emit({ t: 'react', x: sat.x, uy: sat.uy, text: `收割 ${souls} 个灵魂`, color: '#9fe8ff' });
+      eng.addFx({ kind: 'tint', color: '120,220,255', dur: 0.5 });
+    },
+  };
+
+  // 玩家手动释放：返回 'ok' / 'nosatan' / 'cooldown'
+  function castManual(eng, side, idx) {
+    const def = BY_ID.satan.manualSkills[idx];
+    if (!def) return 'no';
+    const sat = eng.units.find((u) => u.side === side && u.uid === 'satan' && eng.alive(u));
+    if (!sat) return 'nosatan';
+    const cds = eng.sides[side].manualCd;
+    if (cds[idx] > 0) return 'cooldown';
+    cds[idx] = eng.cheats && eng.cheats.satanNoCd ? 0 : def.cd;
+    eng.emit({ t: 'skill', side, uid: 'satan', name: def.name, x: sat.x, uy: sat.uy });
+    MANUAL[def.id](eng, sat);
+    return 'ok';
+  }
+
   window.Combat = {
+    satanAura,
+    castManual,
     BY_ID,
     SKILLS,
     DIR,

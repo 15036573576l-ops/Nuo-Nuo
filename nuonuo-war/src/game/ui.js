@@ -3,6 +3,7 @@
 (function () {
   const R = window.RULES;
   const U = window.UNITS;
+  const ALL = U.concat(window.SPECIAL_UNITS || []);   // 出兵栏 = 普通兵种 + 只有玩家能用的特殊单位
   const SR = window.SpriteRender;
   const SH = window.HD_SHEETS;
   const Engine = window.Engine;
@@ -10,7 +11,7 @@
   const LEVELS = window.AI_LEVELS;
   const Render = window.Render;
 
-  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'];
+  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'X'];
   const TIER_COLOR = { T3: '#9aa4b8', T2: '#6fd3ff', T1: '#b58cff', 'T0.5': '#ffb36b', T0: '#ffd166' };
   const DMG = { slash: '斩击', pierce: '穿刺', magic: '魔法', siege: '攻城' };
   const ARMOR = { none: '无甲', light: '轻甲', heavy: '重甲' };
@@ -51,8 +52,8 @@
   function buildRoster() {
     const roster = $('roster');
     roster.innerHTML = '';
-    U.forEach((d, i) => {
-      const card = el('div', 'card');
+    ALL.forEach((d, i) => {
+      const card = el('div', d.playerOnly ? 'card evil' : 'card');
       card.dataset.uid = d.id;
       card.style.setProperty('--tier', TIER_COLOR[d.tier] || '#888');
       card.appendChild(el('span', 'key', KEYS[i]));
@@ -132,7 +133,9 @@
   function tipHtml(d) {
     const skill = d.skill
       ? `<div class="sk">主动·${d.skill.name}（冷却 ${d.skill.cd} 秒，自动释放）</div><div>${d.skill.desc}</div><div class="muted">释放条件：${d.skill.when}</div>`
-      : '<div class="meta">没有主动技能</div>';
+      : d.manualSkills
+        ? d.manualSkills.map((m) => `<div class="sk">手动·${m.name}（${m.key} 键，冷却 ${m.cd} 秒）</div><div>${m.desc}</div>`).join('')
+        : '<div class="meta">没有主动技能</div>';
     const traits = d.traits.length
       ? `<ul>${d.traits.map((t) => `<li><b>${t.name}</b>：${t.desc}</li>`).join('')}</ul>`
       : '';
@@ -148,7 +151,7 @@
       <p class="lore">${d.lore}</p>`;
   }
   function showTip(uid, card) {
-    const d = U.find((x) => x.id === uid);
+    const d = ALL.find((x) => x.id === uid);
     const tip = $('tip');
     tip.innerHTML = tipHtml(d);
     tip.style.display = 'block';
@@ -217,8 +220,8 @@
     const S = eng.sides[0];
     setText('gold', String(Math.floor(S.gold)));
     const mimics = eng.count(0, 'mimic');
-    setText('income', `+${Math.round(R.economy.income + 3 * mimics)}/秒`);
-    setText('pop', `人口 ${S.supplyUsed}/${R.economy.supplyCap}`);
+    setText('income', `+${Math.round((R.economy.income + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
+    setText('pop', eng.cheats.noSupply ? `人口 ${S.supplyUsed}/∞` : `人口 ${S.supplyUsed}/${R.economy.supplyCap}`);
     setText('clock', fmtTime(eng.time));
     for (let s = 0; s < 2; s++) {
       const c = eng.crystals[s];
@@ -283,7 +286,8 @@
       if (e.repeat) return;
       const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const i = KEYS.indexOf(k);
-      if (i >= 0 && i < U.length) spawn(U[i].id);
+      if (i >= 0 && i < ALL.length) { spawn(ALL[i].id); return; }
+      if (window.GameUI.onKey) window.GameUI.onKey(k, e);
     });
   }
 
@@ -294,8 +298,11 @@
     $('btn-pause').textContent = state.paused ? '继续' : '暂停';
   }
   function toggleSpeed() {
-    state.speed = state.speed === 1 ? 2 : 1;
-    if (state.eng) state.eng.speed = state.speed;
+    setSpeed(state.speed === 1 ? 2 : 1);
+  }
+  function setSpeed(v) {
+    state.speed = v;
+    if (state.eng) state.eng.speed = v;
   }
 
   // ---------- 对局 ----------
@@ -311,6 +318,7 @@
     state.renderer.cam.manual = false;
     state.renderer.popups = [];
     hudCache = {};
+    if (window.GameUI.onNewGame) window.GameUI.onNewGame(eng);
     $('ov-start').classList.add('hidden');
     $('ov-end').classList.add('hidden');
     $('ov-pause').classList.add('hidden');
@@ -326,9 +334,9 @@
     $('end-sub').textContent = `用时 ${fmtTime(eng.time)} · 难度：${LEVELS[state.level].label}`;
     const table = $('end-stats');
     const mine = eng.sides[0].spawned, foe = eng.sides[1].spawned;
-    const ids = U.map((d) => d.id).filter((id) => (mine[id] || 0) + (foe[id] || 0) > 0);
+    const ids = ALL.map((d) => d.id).filter((id) => (mine[id] || 0) + (foe[id] || 0) > 0);
     ids.sort((a, b) => (foe[b] || 0) + (mine[b] || 0) - ((foe[a] || 0) + (mine[a] || 0)));
-    const name = (id) => U.find((d) => d.id === id).name;
+    const name = (id) => ALL.find((d) => d.id === id).name;
     table.innerHTML = `<tr><th>兵种</th><th>我方出兵</th><th>电脑出兵</th></tr>` +
       ids.map((id) => `<tr><td>${name(id)}</td><td>${mine[id] || 0}</td><td>${foe[id] || 0}</td></tr>`).join('') +
       `<tr><th>合计</th><th>${Object.values(mine).reduce((a, b) => a + b, 0)}</th><th>${Object.values(foe).reduce((a, b) => a + b, 0)}</th></tr>`;
@@ -373,6 +381,7 @@
       state.renderer.draw(eng, dt);
       updateHud();
       updateRoster();
+      if (window.GameUI.onFrame) window.GameUI.onFrame(eng);
       state.renderer.drawMinimap($('minimap'), eng);
       if (eng.ended && state.endAt && now >= state.endAt) {
         state.endAt = 0;
@@ -403,6 +412,9 @@
     showStart();
     requestAnimationFrame(loop);
   }
+
+  // 给作弊菜单和撒旦技能栏（cheat-ui.js）用的接口
+  window.GameUI = { state, toast, setSpeed, flash, onKey: null, onNewGame: null, onFrame: null };
 
   init();
 })();

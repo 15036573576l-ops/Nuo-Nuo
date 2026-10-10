@@ -11,3 +11,8 @@
   - 地址：https://luizmelo.itch.io
   - 协议：CC0 1.0 Universal
   - 用到的包（在 `hd-src/` 里）：Evil Wizard、Evil Wizard 2、Wizard Pack、Medieval King Pack 2、Martial Hero、Huntress 2、Hero Knight
+
+- **Boss: Demon Slime**（作者 chierit）
+  - 地址：https://chierit.itch.io/boss-demon-slime
+  - 协议：CC-BY 4.0（可商用、可修改，**需要署名**）
+  - 用途：特殊单位“撒旦”（`hd-src/satan/`）。原图朝左，已逐帧水平镜像并拼成条带图。

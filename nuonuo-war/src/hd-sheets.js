@@ -684,6 +684,42 @@ window.HD_SHEETS = {
    }
   }
  },
+ "satan": {
+  "fw": 288,
+  "fh": 160,
+  "cx": 142.0,
+  "foot": 159,
+  "bodyW": 92,
+  "bodyH": 107,
+  "anims": {
+   "idle": {
+    "src": "hd/satan/Idle",
+    "n": 6,
+    "fps": 8
+   },
+   "run": {
+    "src": "hd/satan/Walk",
+    "n": 12,
+    "fps": 12
+   },
+   "attack": {
+    "src": "hd/satan/Cleave",
+    "n": 15,
+    "fps": 16,
+    "release": 9
+   },
+   "hit": {
+    "src": "hd/satan/Hit",
+    "n": 5,
+    "fps": 12
+   },
+   "death": {
+    "src": "hd/satan/Death",
+    "n": 22,
+    "fps": 12
+   }
+  }
+ },
  "warrior_1": {
   "fw": 184,
   "fh": 137,
