@@ -3340,10 +3340,10 @@ window.HD_SHEETS = {
       const own = eng.crystals[side];
       const danger = eng.units.some((u) => u.side !== side && eng.alive(u) && Math.hypot(u.x - own.x, u.y - own.y) < 1100);
 
-      const scored = UNITS.map((def) => {
+      let scored = UNITS.map((def) => {
         let s = 0;
         // 同兵种出得越多越不想再出：看这个兵种占自己累计出兵个数的比例（灰鼠群一次 4 只，占比涨得快）
-        if (totalUnits >= 8) s -= 6 * Math.max(0, (S.spawned[def.id] || 0) / totalUnits - 0.12);
+        if (totalUnits >= 8) s -= 10 * Math.max(0, (S.spawned[def.id] || 0) / totalUnits - 0.10);
         // 后期偏向高梯队
         s += 0.5 * TIERS.indexOf(def.tier) * Math.min(1, t / 180);
         for (const f of foes) {
@@ -3372,6 +3372,11 @@ window.HD_SHEETS = {
         s += (eng.rng() - 0.5) * 0.3;
         return { def, s };
       }).sort((a, b) => b.s - a.s);
+      // 设计规则：单一兵种占双方总出兵的比例不超过 25%（总出兵 40 个以上才生效），超过的不参与选兵
+      // 没有这条规则，灰鼠群（一次 4 只、冷却短）会占掉 30% 以上的出兵，见 docs/QUESTIONS.md
+      const share = (id) => (totalUnits >= 40 ? (S.spawned[id] || 0) / totalUnits : 0);
+      const allowed = scored.filter((x) => share(x.def.id) <= 0.25);
+      if (allowed.length) scored = allowed;
 
       // 节奏：开局两分钟后，场上没有高梯队（T0.5 / T0）时，优先攒钱拿一个大招
       let order = scored;
