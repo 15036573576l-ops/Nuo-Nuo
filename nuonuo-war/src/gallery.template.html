@@ -66,6 +66,8 @@ header p { margin: 8px 0 0; color: var(--ink-dim); max-width: 62ch; }
 .card[aria-pressed="true"] { border-color: var(--tc); box-shadow: 0 0 0 2px var(--tc), 0 6px 18px -6px var(--tc); }
 .card canvas { width: 108px; height: 112px; display: block; image-rendering: pixelated; }
 .card .nm { font-size: 13px; font-weight: 700; padding: 4px 2px 0; }
+.card .hd { position: absolute; top: 4px; right: 4px; font: 700 9px var(--font-num); color: var(--bg); background: var(--gold); padding: 0 4px; }
+.card { position: relative; }
 .card .pw { font-family: var(--font-num); font-size: 11px; color: var(--ink-dim); padding-bottom: 6px; }
 
 /* 详情 */
@@ -116,7 +118,7 @@ footer a { color: var(--gold); }
 <div class="wrap">
   <header>
     <h1>糯糯战记 <span>英雄图鉴</span></h1>
-    <p>20 位原创英雄，按强度分成五个梯队。点一下英雄看他的待机、行走、攻击和受击动作；把鼠标放在格子上可以直接看攻击动作。</p>
+    <p>20 位原创英雄，按强度分成五个梯队，带 HD 标记的是高清版。点一下英雄看他的待机、行走、攻击和受击动作；把鼠标放在格子上可以直接看攻击动作。</p>
   </header>
 
   <section class="tierlist" id="tierlist" aria-label="英雄强度排行"></section>
@@ -136,11 +138,12 @@ footer a { color: var(--gold); }
 
   <footer>
     <div>综合战力 = √(生命 × 每秒伤害) × (1 + 射程 / 400) + 技能分。这是图鉴里的粗略估算，真正的平衡要靠试玩来调。</div>
-    <div>角色与武器像素图来自 <a href="https://0x72.itch.io/dungeontileset-ii" target="_blank" rel="noopener">0x72 DungeonTileset II</a>，CC0 协议（公有领域，可自由使用和修改）。英雄名字、设定和数值为原创。</div>
+    <div>角色与武器像素图来自 <a href="https://0x72.itch.io/dungeontileset-ii" target="_blank" rel="noopener">0x72 DungeonTileset II</a>，高清版角色来自 <a href="https://luizmelo.itch.io" target="_blank" rel="noopener">LuizMelo</a> 的 Evil Wizard、Evil Wizard 2、Wizard Pack、Medieval King Pack 2、Martial Hero，全部是 CC0 协议（公有领域，可自由使用和修改）。英雄名字、设定和数值为原创。</div>
   </footer>
 </div>
 
 <script>/*SPRITES*/</script>
+<script>/*HD*/</script>
 <script>/*HEROES*/</script>
 <script>/*RENDER*/</script>
 <script>
@@ -170,7 +173,7 @@ footer a { color: var(--gold); }
       b.className = 'card';
       b.id = 'hero-' + h.id;
       b.setAttribute('aria-pressed', 'false');
-      b.innerHTML = `<canvas width="108" height="112"></canvas><div class="nm">${h.name}</div><div class="pw">${heroPower(h)}</div>`;
+      b.innerHTML = `<canvas width="108" height="112"></canvas><div class="nm">${h.name}</div><div class="pw">${heroPower(h)}</div>${h.sheet ? '<span class="hd">HD</span>' : ''}`;
       b.title = `${h.title} ${h.name}`;
       const cv = b.querySelector('canvas');
       const c = { hero: h, el: b, ctx: cv.getContext('2d'), cv, hover: false };
@@ -263,8 +266,8 @@ footer a { color: var(--gold); }
       const ctx = fitCanvas(c.cv, 108, 112);
       ctx.clearRect(0, 0, 108, 112);
       const [w, h] = R.spriteSize(c.hero);
-      const s = w >= 32 ? 2.6 : (h <= 16 ? 4 : 3.2);
-      R.drawHero(ctx, c.hero, c.hover ? 'attack' : 'idle', t + c.hero.hp * 0.001, 50, 104, s);
+      const s = c.hero.sheet ? 88 / h : (w >= 32 ? 2.6 : (h <= 16 ? 4 : 3.2));
+      R.drawHero(ctx, c.hero, c.hover ? 'attack' : 'idle', t + c.hero.hp * 0.001, 54, 104, s);
     }
 
     // 舞台
@@ -273,14 +276,14 @@ footer a { color: var(--gold); }
     const scroll = mode === 'run' ? t * selected.speed * 2.2 : 0;
     const gy = drawGround(ctx, W, Hh, scroll);
     const [sw, sh] = R.spriteSize(selected);
-    const s = sw >= 32 ? 4.4 : 5.5;
+    const s = selected.sheet ? 170 / sh : (sw >= 32 ? 4.4 : 5.5);
     const hx = 150;
     const res = R.drawHero(ctx, selected, mode, t, hx, gy + 6, s);
 
     // 靶子：攻击时站在射程位置
     if (mode === 'attack') {
       const ranged = selected.range > 80;
-      const tx = ranged ? 470 : hx + (sw * s) / 2 + 40;
+      const tx = ranged ? 470 : hx + (sw * s) / 2 + (selected.sheet ? 70 : 40);
       ctx.fillStyle = '#5b4a3a';
       ctx.fillRect(tx - 4, gy - 60, 8, 66);
       ctx.fillStyle = '#c9a36a';

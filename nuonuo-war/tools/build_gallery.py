@@ -6,8 +6,11 @@ sprites = {
     p.stem: "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
     for p in sorted((ROOT / "assets/sprites").glob("*.png"))
 }
+for p in sorted((ROOT / "assets/hd-src").glob("*/*.png")):
+    sprites[f"hd/{p.parent.name}/{p.stem}"] = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
 html = (ROOT / "src/gallery.template.html").read_text(encoding="utf-8")
 html = html.replace("/*SPRITES*/", "window.SPRITES = " + json.dumps(sprites) + ";")
+html = html.replace("/*HD*/", (ROOT / "src/hd-sheets.js").read_text(encoding="utf-8"))
 html = html.replace("/*HEROES*/", (ROOT / "src/heroes.js").read_text(encoding="utf-8"))
 html = html.replace("/*RENDER*/", (ROOT / "src/sprite-render.js").read_text(encoding="utf-8"))
 out = ROOT / "dist/gallery.html"

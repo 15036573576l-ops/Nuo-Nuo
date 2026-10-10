@@ -70,6 +70,7 @@
    * 返回本帧是否到达出手点（用于发射投射物）和武器尖端位置。
    */
   function drawHero(ctx, hero, state, t, x, y, s, face = 1) {
+    if (hero.sheet) return drawSheetHero(ctx, hero, state, t, x, y, s, face);
     const kind = state === 'run' ? 'run' : 'idle';
     const fr = frames(hero.sprite, kind);
     if (!fr.length || !fr[0].complete) return {};
@@ -165,7 +166,45 @@
     return { release: !!pose.release, muzzle: [wx, wy] };
   }
 
+  // ---------- 高清横版条带图角色 ----------
+  // 素材自带待机/跑步/攻击/受击帧，按 HD_SHEETS 里的帧宽和脚底锚点来画
+  function drawSheetHero(ctx, hero, state, t, x, y, s, face) {
+    const sh = window.HD_SHEETS[hero.sheet];
+    let a = sh.anims[state === 'run' ? 'run' : state === 'attack' ? 'attack' : state === 'hit' ? 'hit' : 'idle'];
+    let idx, release = false;
+    if (state === 'attack' || state === 'hit') {
+      const dur = a.n / a.fps;
+      const period = state === 'attack' ? Math.max(dur, 1 / hero.aspd) : Math.max(dur, 1.0);
+      const local = t % period;
+      if (local < dur) {
+        idx = Math.min(a.n - 1, Math.floor(local * a.fps));
+        release = state === 'attack' && idx === a.release;
+      } else {
+        a = sh.anims.idle;
+        idx = Math.floor(t * a.fps) % a.n;
+      }
+    } else {
+      idx = Math.floor(t * a.fps) % a.n;
+    }
+    const im = img(a.src);
+    if (!im || !im.complete) return {};
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.scale(face * s, s);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, sh.bodyW * 0.45, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.drawImage(im, idx * sh.fw, 0, sh.fw, sh.fh, -sh.cx, -sh.foot, sh.fw, sh.fh);
+    ctx.restore();
+    const mx = x + face * sh.bodyW * 0.55 * s;
+    const my = y - sh.bodyH * 0.55 * s;
+    return { release, muzzle: [mx, my] };
+  }
+
   function spriteSize(hero) {
+    if (hero.sheet) { const sh = window.HD_SHEETS[hero.sheet]; return [sh.bodyW, sh.bodyH]; }
     const im = frames(hero.sprite, 'idle')[0];
     return im && im.naturalWidth ? [im.naturalWidth, im.naturalHeight] : [16, 28];
   }
