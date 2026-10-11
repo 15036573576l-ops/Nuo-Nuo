@@ -14,12 +14,12 @@ window.SPECIAL_UNITS = [
       { name: '不灭', desc: '第一次死亡时原地复活，生命回满并无敌 3 秒。' },
     ],
     skill: null,
-    // 主动技能由玩家手动释放（技能栏按钮或 J / K / L），撒旦在场时才能用
+    // 主动技能由玩家手动释放（技能栏按钮或 J / K / L），撒旦在场时才能用；电脑那边的撒旦自己会放
     manualSkills: [
       { id: 'meteor', key: 'J', name: '地狱火雨', cd: 18, color: '#ff7a3d',
-        desc: '全场所有敌军受到 400 点火焰伤害并叠满 3 层灼烧（会触发融化、爆燃），敌方水晶受到 500 点伤害。' },
+        desc: '全场所有敌军受到 400 点火焰伤害并叠满 3 层灼烧（会触发融化、爆燃）。不打水晶。' },
       { id: 'dread', key: 'K', name: '深渊威压', cd: 24, color: '#c86bff',
-        desc: '全场所有敌军被击退 180 并眩晕 4 秒，无视眩晕免疫和巨型减半，打断一切蓄力和冲锋。' },
+        desc: '全场所有敌军被击退 180 并眩晕 4 秒，无视眩晕免疫和巨型减半，打断一切蓄力和冲锋。对面的撒旦和冰龙压不住。' },
       { id: 'reap', key: 'L', name: '灵魂收割', cd: 30, color: '#9fe8ff',
         desc: '处决全场生命低于 40% 的敌军。每个灵魂 +25 金币、撒旦回复 5% 生命，最多 8 个灵魂变成你的骷髅战士（存在 20 秒）。' },
     ],
@@ -31,12 +31,14 @@ window.SPECIAL_UNITS = [
     id: 'frostwing', name: '冰龙', title: '极寒之翼', tier: 'SSSSSSS', sheet: 'frostwing', role: '灭世',
     playerOnly: true, cardClass: 'frost', scale: 1.5, shadowR: 110, cull: 700,
     ccImmune: true, statusImmune: { burn: 1, poison: 1 }, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true, hunter: true,
+    taunt: 2400,       // 嘲讽半径：这个范围里的敌军只打冰龙
     cost: 500000, supply: 0, cooldown: 1, count: 1,
     hp: 20000000, armor: 'heavy', atk: 260000, aspd: 0.5, dmg: 'magic', range: 420, speed: 110, splash: 260,
     element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant'],
     traits: [
       { name: '极寒之躯', desc: '走在地上，和别的兵一样能被打到、被挡住。免疫控制、灼烧、中毒、诅咒和击退。' },
-      { name: '猎食', desc: '往右走，哪边有敌军就追哪边（往左也追）。场上还有敌军时不碰水晶，全灭了才去推水晶。' },
+      { name: '猎食', desc: '往右走，哪边有敌军就追哪边，头跟着目标转。敌军跑到身后就 4 倍速扑回去拍一爪子，伤害和吐息一样。场上还有敌军时不碰水晶。' },
+      { name: '嘲讽', desc: '2400 范围内的敌军和敌方炮塔只打冰龙，够不着的会一路追过来。' },
       { name: '永冻光环', desc: '420 范围内的敌人每 0.5 秒受 30000 冰伤并叠 1 层寒霜。' },
       { name: '冰霜吐息', desc: '普通攻击：落点 260 范围 260000 魔法伤害，叠满 3 层寒霜。' },
       { name: '冰晶重生', desc: '第一次死亡时原地重生，回满血并无敌 3 秒。' },

@@ -597,7 +597,7 @@ console.log('\n撒旦手动技能（J / K / L）');
 }
 }
 {
-  // J 地狱火雨：全场敌军 400 火伤 + 3 层灼烧，敌方水晶受伤；之后进入冷却
+  // J 地狱火雨：全场敌军 400 火伤 + 3 层灼烧，不打水晶；之后进入冷却
   const eng = new Engine({ seed: 51 });
   eng.addUnit(0, SATAN, at(300));
   const brown = eng.addUnit(1, def('brown'), at(3000));
@@ -605,9 +605,9 @@ console.log('\n撒旦手动技能（J / K / L）');
   const crys = eng.crystals[1];
   const hp0 = crys.hp;
   const r1 = manualCast(eng, 0, 0);
-  check('地狱火雨（J）：全场敌军 3 层灼烧、受 400 火伤；敌方水晶受伤；进入冷却',
+  check('地狱火雨（J）：全场敌军 3 层灼烧、受 400 火伤；敌方水晶不掉血；进入冷却',
     r1 === 'ok' && C.stacksOf(brown, 'burn') === 3 && brown.hp < brown.maxHp &&
-    C.stacksOf(far, 'burn') === 3 && crys.hp < hp0 && eng.sides[0].manualCd[0] > 0,
+    C.stacksOf(far, 'burn') === 3 && crys.hp === hp0 && eng.sides[0].manualCd[0] > 0,
     `r=${r1} burn=${C.stacksOf(brown, 'burn')} crys=${hp0 - crys.hp}`);
   check('地狱火雨冷却中再次释放返回 cooldown', manualCast(eng, 0, 0) === 'cooldown');
 }
@@ -685,7 +685,7 @@ console.log('\n冰龙（V 召唤，B / N / M 技能，H 开关打水晶）');
   check('场上还有敌军时冰龙不推水晶（水晶血量不变）', c3.hp === c3.maxHp && eng3.findTarget(d3) !== c3 && eng3.alive(far),
     `hp=${c3.hp}`);
   for (const u of eng3.units.filter((x) => x.side === 1)) eng3.removeUnit(u);
-  step(eng3, 90);
+  step(eng3, 600);      // 刚才回头扑了一段，走回水晶跟前要一会儿
   check('敌军全灭以后冰龙去推水晶', c3.hp < c3.maxHp || eng3.ended, `hp=${c3.hp}`);
 }
 {
@@ -792,6 +792,105 @@ console.log('\n冰龙（V 召唤，B / N / M 技能，H 开关打水晶）');
   C.dragonCast(eng, 0, 2);
   step(eng, 20);
   check('满数值的暴风雪 1 个 tick 清场', eng.stat.alive[1] === 0, `alive=${eng.stat.alive[1]}`);
+}
+
+// 冰龙：扭头、拍击、嘲讽；电脑的撒旦自动放技能
+console.log('\n冰龙扭头 / 拍击 / 嘲讽，电脑撒旦自动放技能');
+{
+  // 右边的敌人：朝右、用吐息；左边的敌人：扭头朝左，4 倍速扑过去拍，伤害和吐息一样
+  const eng = new Engine({ seed: 90 });
+  eng.dragonCrystal = false;
+  eng.cheats.dmgMul[0] = 0.0001;       // 伤害压低，敌人不会一下就死，方便看动作
+  const d = eng.addUnit(0, DRAGON, at(3000));
+  const right = eng.addUnit(1, def('titan'), at(3350));
+  step(eng, 30);
+  check('敌人在右边：冰龙朝右，用吐息（不是拍击）', d.dir === 1 && d.swing && !d.swing.slap && d.swing.target === right);
+  eng.removeUnit(right);
+  d.swing = null;
+  const left = eng.addUnit(1, def('titan'), at(1800));
+  const x0 = d.x;
+  step(eng, 30);
+  check('敌人在左边：冰龙扭头朝左，4 倍速扑过去（1 秒走 400 以上）', d.dir === -1 && x0 - d.x > 400, `dir=${d.dir} moved=${(x0 - d.x).toFixed(0)}`);
+  let slapped = false;
+  const hp0 = left.hp;
+  for (let i = 0; i < 150 && !slapped; i++) { step(eng, 1); slapped = !!(d.swing && d.swing.slap); }
+  step(eng, 12);
+  check('扑到跟前用拍击（贴身才出手），伤害和吐息一样',
+    slapped && eng.slapReach(d, left) && Math.abs((hp0 - left.hp) - 260000 * 0.0001 * 1.35) < 1e-6 + 3 * 30000 * 0.0001 * 1.35,
+    `slapped=${slapped} dmg=${(hp0 - left.hp).toFixed(2)}`);
+  eng.removeUnit(left);
+  d.swing = null;
+  step(eng, 20);
+  check('没有敌人了：头转回前进方向', d.dir === 1);
+}
+{
+  // 嘲讽：2400 范围内的敌军只打冰龙（放着眼前的别的兵和水晶不打），范围外的照常
+  const eng = new Engine({ seed: 91 });
+  eng.cheats.dmgMul[0] = 0;
+  eng.cheats.godMode[0] = true;
+  const d = eng.addUnit(0, DRAGON, at(3000));
+  const bait = eng.addUnit(0, def('titan'), at(4000));
+  const archer = eng.addUnit(1, def('sylvie'), at(4150));          // 眼前就是 bait，但在嘲讽范围里
+  const melee = eng.addUnit(1, def('rex'), at(4080, MY + 40));
+  const outside = eng.addUnit(1, def('rex'), at(6500));
+  const giant = eng.addUnit(1, def('titan'), at(4500, MY - 300));
+  step(eng, 10);
+  check('嘲讽范围内的敌军不打眼前的别的兵', eng.findTarget(archer) === null && eng.findTarget(melee) === null &&
+    archer.chase === d && melee.chase === d);
+  check('嘲讽范围外的敌军不受影响', outside.chase !== d && eng.tauntOf(outside) === null);
+  check('碎城巨人也被嘲讽，掉头去追冰龙', giant.chase === d);
+  // 光环会把它们反复冻住，所以看的是这段时间里出过手没有、打的是谁
+  const hits = new Set();
+  let other = false;
+  for (let i = 0; i < 1800; i++) {
+    step(eng, 1);
+    for (const u of [archer, melee]) {
+      if (!u.swing) continue;
+      if (u.swing.target === d) hits.add(u); else other = true;
+    }
+  }
+  check('被嘲讽的敌军都去打冰龙，没打过别的', hits.size === 2 && !other, `hits=${hits.size} other=${other}`);
+  // 冰龙死了嘲讽就没了
+  d.reviveUsed = true; d.hp = 0; eng.markDead(d); eng.settleDeaths();
+  step(eng, 90);
+  check('冰龙不在了嘲讽解除', eng.tauntOf(archer) === null && archer.chase !== d);
+}
+{
+  // 撒旦会打冰龙：隔着 1500 也被嘲讽引过来，走到跟前就砍
+  const eng = new Engine({ seed: 92 });
+  eng.cheats.dmgMul[0] = 0;
+  eng.dragonCrystal = false;
+  const d = eng.addUnit(0, DRAGON, at(3000, MY - 600));
+  const sat = eng.addUnit(1, SATAN, at(4500, MY + 600));
+  step(eng, 30 * 50);
+  check('对面的撒旦被嘲讽引过来打冰龙', d.hp < d.maxHp && sat.swing && sat.swing.target === d, `dmg=${d.maxHp - d.hp}`);
+}
+{
+  // 电脑的撒旦自动放技能；地狱火雨不伤我方水晶；我方的撒旦不会自动放
+  const eng = new Engine({ seed: 93 });
+  eng.addUnit(1, SATAN, at(6000));
+  const mine = eng.addUnit(0, def('titan'), at(1000));
+  const c0 = eng.crystals[0].hp;
+  step(eng, 30);
+  check('电脑的撒旦自动放地狱火雨，不伤我方水晶', C.stacksOf(mine, 'burn') > 0 && eng.sides[1].manualCd[0] > 0 && eng.crystals[0].hp === c0);
+  const eng2 = new Engine({ seed: 94 });
+  eng2.addUnit(0, SATAN, at(1000));
+  const foe = eng2.addUnit(1, def('titan'), at(6000));
+  step(eng2, 60);
+  check('我方的撒旦不会自动放技能', eng2.sides[0].manualCd[0] === 0 && C.stacksOf(foe, 'burn') === 0);
+  // 深渊威压压不住冰龙和对面的撒旦
+  const eng3 = new Engine({ seed: 95 });
+  const s3 = eng3.addUnit(1, SATAN, at(4000));
+  const d3 = eng3.addUnit(0, DRAGON, at(3700));
+  const sat0 = eng3.addUnit(0, SATAN, at(3800, MY + 100));
+  const rat = eng3.addUnit(0, def('rat'), at(3900, MY - 100));
+  const x3 = d3.x;
+  manualCast(eng3, 1, 1);
+  check('深渊威压：普通兵照样眩晕，冰龙和对面的撒旦压不住', C.has(rat, 'stun') && !C.has(d3, 'stun') && d3.x === x3 && !C.has(sat0, 'stun'));
+  eng3.cheats.satanNoCd = true;
+  eng3.sides[1].manualCd[0] = 5;
+  step(eng3, 1);
+  check('“撒旦技能无冷却”只对我方生效', eng3.sides[1].manualCd[0] > 4);
 }
 
 // ---------- 3. 规模压力（只跑逻辑，不渲染） ----------

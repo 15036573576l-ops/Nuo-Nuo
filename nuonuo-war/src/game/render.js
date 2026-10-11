@@ -22,6 +22,8 @@
   const BAKE = 0.5;                 // 地面烘焙分辨率：一个世界像素画成 0.5 个画布像素
   const FLY_LIFT = 36;              // 飞行单位离地的高度（世界像素）
   const CULL = 90;                  // 视野外多留的余量（屏幕像素），精灵边缘不会突然消失
+  const BODY_MAX = 400;             // 一帧最多画多少具尸体
+  const byY = (a, b) => a.y - b.y;
 
   const ELEM = { fire: '#ff8a3d', frost: '#7dd8ff', poison: '#8be05c', shadow: '#c86bff', holy: '#ffe38a' };
   const PROJ_SCALE = { arrow: 1.8, spear: 1.5, bomb: 0.55, spore: 1.0, fireball: 1.1 };
@@ -39,17 +41,6 @@
   function ellipse(ctx, x, y, rx, ry) {
     ctx.beginPath();
     ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2);
-  }
-
-  // 为 sprite 动画取得状态：攻击按 swing 的时钟，受击/死亡只播一次
-  function pose(u) {
-    if (u.bones) return { state: 'death', t: 10, opt: { alpha: 0.95 } };
-    if (u.hitT < 0.22 && !u.def.noFlinch) return { state: 'hit', t: u.hitT, opt: { once: true, flash: true } };
-    if (u.swing) return { state: 'attack', t: u.swing.t, opt: { period: u.swing.period } };
-    if (u.charge) return { state: 'run', t: u.clock, opt: {} };
-    if (u.burrowed) return { state: 'run', t: u.clock, opt: { alpha: 0.32 } };
-    if (u.moving) return { state: 'run', t: u.clock, opt: {} };
-    return { state: 'idle', t: u.clock, opt: {} };
   }
 
   // 固定种子的随机数（mulberry32）：每次打开地图都一样
@@ -231,6 +222,38 @@
       this.mini = document.createElement('canvas');
       this.mini.width = 320;
       this.mini.height = 128;
+      // 每帧复用的缓冲区：要画的东西、血条。不每帧新建几千个小对象
+      this.pool = [];
+      this.ents = [];
+      this.bodyBuf = [];
+      this.bars = [];             // 血条：x, y, w, h, frac, side 六个数一组
+      this.base = 1;              // 画布的基础缩放 = 设备像素比 × 画质
+      this.q = 1;                 // 画质（0.6 ~ 1）：显卡忙不过来时自动降分辨率，缓过来再升回去
+      this.slowN = 0;
+      this.fastN = 0;
+      this.mmTick = 0;
+      this.fontNow = '';
+    }
+
+    // 画质自适应。dt 是这一帧隔了多久，cpuMs 是这一帧脚本自己花的时间（逻辑 + 画图指令）。
+    // 帧慢、但脚本没花多少时间，说明慢在显卡填像素上，降分辨率才有用；慢在脚本上就不降（降了也白糊）
+    adapt(dt, cpuMs) {
+      const ms = dt * 1000;
+      if (ms > 24 && cpuMs < ms * 0.5) this.slowN++; else this.slowN = Math.max(0, this.slowN - 1);
+      if (ms < 18.5) this.fastN++; else this.fastN = 0;
+      if (this.slowN > 45 && this.q > 0.6) {
+        this.q = Math.max(0.6, this.q - 0.1);
+        this.slowN = 0; this.fastN = 0;
+        this.resize();
+      } else if (this.fastN > 360 && this.q < 1) {
+        this.q = Math.min(1, this.q + 0.1);
+        this.fastN = 0;
+        this.resize();
+      }
+    }
+
+    setFont(f) {
+      if (this.fontNow !== f) { this.ctx.font = f; this.fontNow = f; }
     }
 
     // 地面烘焙：每帧最多用 budgetMs 毫秒，烘焙完成后更新小地图底图
@@ -247,14 +270,20 @@
     }
 
     resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2) * this.q;
       const r = this.cv.getBoundingClientRect();
       // 还没排版好（0 宽或 0 高）就不动：否则缓冲区是 1 像素高，整张画面会被拉扁成一条
       if (r.width < 2 || r.height < 2) return;
       this.w = Math.max(320, r.width);
       this.h = r.height;                  // 按舞台的实际高度，不钳到 200（矮的舞台会把画面压扁）
-      this.cv.width = Math.round(this.w * dpr);
-      this.cv.height = Math.round(this.h * dpr);
+      const pw = Math.round(this.w * dpr), ph = Math.round(this.h * dpr);
+      // 尺寸没变就不碰 width / height（一赋值画布就清空重建，很贵）
+      if (this.cv.width !== pw || this.cv.height !== ph) {
+        this.cv.width = pw;
+        this.cv.height = ph;
+      }
+      this.base = dpr;
+      this.fontNow = '';
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       this.clamp();
     }
@@ -361,7 +390,8 @@
     }
     addPopup(x, y, text, color, size, dur, rise) {
       this.popups.push({ x, y, text, color, size, dur, rise, t: 0, jx: (Math.random() - 0.5) * 26, jy: Math.random() * 16 });
-      if (this.popups.length > 160) this.popups.splice(0, this.popups.length - 160);
+      // 超了就一次砍掉一批最旧的（不是每加一个就挪一遍数组）
+      if (this.popups.length > 200) this.popups.splice(0, this.popups.length - 140);
     }
     // 钻地尘土：单独计数，不进飘字数组，所以不会把伤害数字挤掉
     addDust(x, y) {
@@ -380,13 +410,21 @@
       const { ents, bodies } = this.collect(eng);
       this.drawZones(eng);
       this.drawAuras(eng);
-      for (const b of bodies) this.drawBody(b);
-      // 单位和水晶按 y 排序（远的先画）
-      ents.sort((a, b) => a.y - b.y);
-      for (const it of ents) {
+      // 平滑开关先设成已知状态（画布一改尺寸，上下文的状态就全重置了），之后只在要变的时候才改
+      this.smooth = false;
+      this.ctx.imageSmoothingEnabled = false;
+      for (let i = 0; i < bodies.length; i++) this.drawBody(bodies[i]);
+      this.drawShadows(ents);
+      // 单位和水晶按 y 排序（远的先画）。缩得很远又有几千个时不排：精灵只有几个像素，谁压谁看不出来，
+      // 不排的话顺序每帧都一样，也不会闪
+      if (this.cam.zoom >= 0.2 || ents.length < 1500) ents.sort(byY);
+      this.bars.length = 0;
+      for (let i = 0; i < ents.length; i++) {
+        const it = ents[i];
         if (it.k === 1) this.drawCrystal(it.o, it.sx, it.sy);
-        else this.drawUnit(it.o, it.sx, it.sy, it.gy);
+        else this.drawUnit(eng, it.o, it.sx, it.sy, it.gy);
       }
+      this.drawBars();
       this.drawProjectiles(eng);
       this.drawFx(eng);
       this.drawBlizzard(eng);
@@ -414,6 +452,8 @@
 
     drawVoid() {
       const { ctx, w, h } = this;
+      // 地图把整个画面盖满的时候底色看不见，不用画
+      if (this.sx(0) <= 0 && this.sx(MW) >= w && this.sy(0) <= 0 && this.sy(MH) >= h) return;
       const g = ctx.createLinearGradient(0, 0, 0, h);
       g.addColorStop(0, '#0b1020');
       g.addColorStop(1, '#17213a');
@@ -439,25 +479,105 @@
     // 找出视野内要画的东西：单位和水晶进入排序列表，尸体单独一份。视野外的剔掉，视野内的全部画精灵
     collect(eng) {
       const z = this.cam.zoom, w = this.w, h = this.h;
-      const ents = [];
+      const pool = this.pool, ents = this.ents;
+      let n = 0;
+      const put = (k, o, y, gx, py, gy) => {
+        let e = pool[n];
+        if (!e) e = pool[n] = { k: 0, o: null, y: 0, sx: 0, sy: 0, gy: 0 };
+        e.k = k; e.o = o; e.y = y; e.sx = gx; e.sy = py; e.gy = gy;
+        ents[n++] = e;
+      };
       for (const c of eng.crystals) {
         const gx = this.sx(c.x), gy = this.sy(c.y);
-        ents.push({ k: 1, o: c, y: c.y, sx: gx, sy: gy, gy });
+        put(1, c, c.y, gx, gy, gy);
       }
-      for (const u of eng.units) {
+      const units = eng.units;
+      // 缩远了又人多的时候，精灵只有几个像素大，一大群挤在一起互相盖住。把屏幕划成小格子，
+      // 每格每个阵营只画一个（先到先得，顺序每帧一样所以不闪），看上去还是那一片人，要画的少好几倍。
+      // 巨型和冰龙这种大个子不参与，照常全画
+      const lod = z < DETAIL_ZOOM && units.length > 600;
+      let occ = null, c = 1, cw = 0, ch = 0;
+      if (lod) {
+        c = Math.max(2.5, (z < 0.2 ? 20 : 12) * z);
+        cw = Math.ceil(w / c) + 2;
+        ch = Math.ceil(h / c) + 2;
+        const size = cw * ch * 2;
+        if (!this.occ || this.occ.length < size) this.occ = new Uint8Array(size);
+        else this.occ.fill(0, 0, size);
+        occ = this.occ;
+      }
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
         const gx = this.sx(u.x), gy = this.sy(u.y);
         const py = gy - (u.flying ? (u.def.lift || FLY_LIFT) * z : 0);
         const cull = Math.max(CULL, (u.def.cull || 0) * z);     // 冰龙的精灵很大，视野外要多留一截
         if (gx < -cull || gx > w + cull || py < -cull || py > h + cull) continue;
-        ents.push({ k: 0, o: u, y: u.y, sx: gx, sy: py, gy });
+        if (occ && !u.giant && !u.def.cull) {
+          const ix = ((gx / c) | 0) + 1, iy = ((py / c) | 0) + 1;
+          if (ix >= 0 && ix < cw && iy >= 0 && iy < ch) {
+            const k = (iy * cw + ix) * 2 + u.side;
+            if (occ[k]) continue;
+            occ[k] = 1;
+          }
+        }
+        put(0, u, u.y, gx, py, gy);
       }
-      const bodies = [];
-      for (const b of eng.bodies) {
+      ents.length = n;
+      // 尸体：视野里最多画 BODY_MAX 具（从最新的往回数），一下子死了几千个也不会拖慢
+      const bodies = this.bodyBuf;
+      bodies.length = 0;
+      const all = eng.bodies;
+      for (let i = all.length - 1; i >= 0 && bodies.length < BODY_MAX; i--) {
+        const b = all[i];
         const gx = this.sx(b.x), gy = this.sy(b.y);
         if (gx < -CULL || gx > w + CULL || gy < -CULL || gy > h + CULL) continue;
         bodies.push({ b, sx: gx, sy: gy });
       }
       return { ents, bodies };
+    }
+
+    // 所有单位的地面阴影一次画完：地面单位一条路径、飞行单位一条路径，各填一次（原来是一个单位填一次）
+    drawShadows(ents) {
+      const ctx = this.ctx, z = this.cam.zoom;
+      if (z < 0.2 && ents.length > 600) return;     // 缩得很远、人又多：影子只有一两个像素，不画
+      for (let pass = 0; pass < 2; pass++) {
+        let any = false;
+        ctx.beginPath();
+        for (let i = 0; i < ents.length; i++) {
+          const it = ents[i];
+          if (it.k !== 0) continue;
+          const u = it.o;
+          if (u.burrowed || (u.flying ? 1 : 0) !== pass) continue;
+          const rr = Math.max(4, (u.def.shadowR || u.radius) * z);
+          ctx.moveTo(it.sx + rr, it.gy);
+          ctx.ellipse(it.sx, it.gy, rr, rr * K, 0, 0, Math.PI * 2);
+          any = true;
+        }
+        if (any) {
+          ctx.fillStyle = pass ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.26)';
+          ctx.fill();
+        }
+      }
+    }
+
+    // 血条也攒起来一次画完：底色一条路径，两个阵营各一条路径
+    drawBars() {
+      const ctx = this.ctx, b = this.bars;
+      if (!b.length) return;
+      ctx.beginPath();
+      for (let i = 0; i < b.length; i += 6) ctx.rect(b[i] - 1, b[i + 1] - 1, b[i + 2] + 2, b[i + 3] + 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fill();
+      for (let s = 0; s < 2; s++) {
+        let any = false;
+        ctx.beginPath();
+        for (let i = 0; i < b.length; i += 6) {
+          if (b[i + 5] !== s) continue;
+          ctx.rect(b[i], b[i + 1], b[i + 2] * b[i + 4], b[i + 3]);
+          any = true;
+        }
+        if (any) { ctx.fillStyle = SIDE_COLOR[s]; ctx.fill(); }
+      }
     }
 
     drawCrystal(c, cx, base) {
@@ -512,7 +632,7 @@
       ctx.fillStyle = s === 0 ? '#3ea6ff' : '#ff5a5a';
       ctx.fillRect(bx, by, bw * hpFrac, bh);
       ctx.fillStyle = '#fff';
-      ctx.font = `700 ${Math.max(10, Math.round(12 * z))}px ${FONT}`;
+      this.setFont(`700 ${Math.max(10, Math.round(12 * z))}px ${FONT}`);
       ctx.textAlign = 'center';
       ctx.fillText(`${s === 0 ? '我方' : '电脑'}水晶 ${Math.ceil(c.hp)}`, cx, by - 6 * z);
       // 炮塔冷却的小点
@@ -527,10 +647,26 @@
     // 撒旦的炼狱光环：地面上一圈呼吸的暗红火光，画在地面层，不会盖住后方的单位
     drawAuras(eng) {
       const ctx = this.ctx, z = this.cam.zoom;
+      // 场上没有撒旦也没有冰龙就不用翻一遍单位
+      const h0 = eng.has[0], h1 = eng.has[1];
+      if (!h0.satan && !h1.satan && !h0.frostwing && !h1.frostwing) return;
+      let shown = 0;
       for (const u of eng.units) {
         const ice = u.uid === 'frostwing';
         if ((u.uid !== 'satan' && !ice) || !eng.alive(u)) continue;
+        if (++shown > 30) break;       // 批量出了一大群的时候只画前 30 个的光环
         const px = this.sx(u.x), gy = this.sy(u.y);
+        if (ice && u.def.taunt) {
+          // 嘲讽范围：一圈很淡的虚线
+          ctx.save();
+          ctx.setLineDash([14, 12]);
+          ctx.lineDashOffset = -this.time * 20;
+          ctx.strokeStyle = 'rgba(190,228,255,0.35)';
+          ctx.lineWidth = 2;
+          ellipse(ctx, px, gy, u.def.taunt * z, u.def.taunt * z * K);
+          ctx.stroke();
+          ctx.restore();
+        }
         const k = 0.5 + 0.5 * Math.sin(this.time * 3);
         const r = (ice ? 420 : 200) * z;     // 光环半径：撒旦 200、冰龙 420，地面圆，走 K 压扁
         ctx.save();
@@ -577,82 +713,107 @@
       }
     }
 
+    setSmooth(v) {
+      if (this.smooth !== v) { this.ctx.imageSmoothingEnabled = v; this.smooth = v; }
+    }
+
     drawBody(it) {
       const b = it.b, ctx = this.ctx, z = this.cam.zoom;
       const left = b.life - b.age;
       const alpha = Math.max(0, Math.min(1, left / (b.corpse ? 1.5 : 0.4)));
       if (alpha <= 0) return;
-      if (!SH[b.sheet]) return;
+      const sh = SH[b.sheet];
+      if (!sh) return;
       const S = z * 1.3 * (b.small ? 0.7 : 1) * (b.scale || 1);
-      SR.drawHero(ctx, { sheet: b.sheet, aspd: 1 }, 'death', b.age, it.sx, it.sy, S, b.side === 0 ? 1 : -1, { alpha });
+      this.setSmooth(!!sh.smooth);
+      ctx.globalAlpha = alpha;
+      SR.drawSheetFast(ctx, sh, 1, 'death', b.age, it.sx, it.sy, S, b.side === 0 ? 1 : -1, false, 0, false, this.base);
+      ctx.setTransform(this.base, 0, 0, this.base, 0, 0);
+      ctx.globalAlpha = 1;
     }
 
-    // 单位：精灵照常画。缩远时（DETAIL_ZOOM 以下）省掉角标、蓄力条、冰圈、尘土这些小细节
-    drawUnit(u, px, py, gy) {
+    // 单位：精灵照常画。缩远时（DETAIL_ZOOM 以下）省掉角标、蓄力条、冰圈、尘土这些小细节。
+    // 影子在 drawShadows 里统一画过了，血条只是记下来，由 drawBars 统一画
+    drawUnit(eng, u, px, py, gy) {
       const sh = SH[u.sheet];
       if (!sh) return;
-      const ctx = this.ctx, z = this.cam.zoom;
+      const ctx = this.ctx, z = this.cam.zoom, def = u.def;
       const detail = z >= DETAIL_ZOOM;
-      const S = z * 1.3 * (u.small ? 0.7 : 1) * (u.def.scale || 1);
-      // 地面阴影（飞行单位的影子留在地上）。精灵自己的影子关掉，只画这一处
-      if (!u.burrowed) {
-        const rr = Math.max(4, (u.def.shadowR || u.radius) * z);
-        ctx.fillStyle = u.flying ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.26)';
-        ellipse(ctx, px, gy, rr, rr * K);
-        ctx.fill();
-      }
-      if ((u.uid === 'satan' || u.def.revive) && u.invuln > 0) {
+      const S = z * 1.3 * (u.small ? 0.7 : 1) * (def.scale || 1);
+      if ((u.uid === 'satan' || def.revive) && u.invuln > 0) {
         // 不灭 / 冰晶重生的无敌期间：身上一圈光环（地面光环见 drawAuras）
         const k = 0.5 + 0.5 * Math.sin(this.time * 3);
-        ctx.strokeStyle = u.def.revive ? `rgba(200,235,255,${0.6 + 0.4 * k})` : `rgba(255,200,120,${0.6 + 0.4 * k})`;
+        ctx.strokeStyle = def.revive ? `rgba(200,235,255,${0.6 + 0.4 * k})` : `rgba(255,200,120,${0.6 + 0.4 * k})`;
         ctx.lineWidth = 3;
         ellipse(ctx, px, py - sh.bodyH * S * 0.5, sh.bodyW * S * 0.7, sh.bodyH * S * 0.62);
         ctx.stroke();
       }
-      const p = pose(u);
-      const alpha = p.opt.alpha == null ? 1 : p.opt.alpha;
-      p.opt.noShadow = true;     // 影子已在上面画过，精灵自己的不画（pose 每次返回新的 opt，改它没有副作用）
-      if (alpha > 0) SR.drawHero(ctx, u.def, p.state, p.t, px, py, S, u.dir, p.opt);
+      // 动画状态：攻击按 swing 的时钟，受击只播一次；冰龙的拍击用振翼的动作，身体往目标那边扑一下
+      let state = 'idle', t = u.clock, alpha = 1, once = false, period = 0, flash = false;
+      const sw = u.swing;
+      if (u.bones) { state = 'death'; t = 10; alpha = 0.95; }
+      else if (u.hitT < 0.22 && !def.noFlinch) { state = 'hit'; t = u.hitT; once = true; flash = true; }
+      else if (sw) {
+        if (sw.slap) {
+          state = 'run';
+          const k = Math.sin(Math.PI * Math.min(1, sw.t / sw.period));
+          px += u.dir * 80 * z * k;
+          py -= 26 * z * k;
+        } else { state = 'attack'; t = sw.t; period = sw.period; }
+      }
+      else if (u.charge) state = 'run';
+      else if (u.burrowed) { state = 'run'; alpha = 0.32; }
+      else if (u.moving) state = 'run';
+
+      this.setSmooth(!!sh.smooth);
+      if (alpha !== 1) ctx.globalAlpha = alpha;
+      SR.drawSheetFast(ctx, sh, def.aspd, state, t, px, py, S, u.dir, once, period, flash, this.base);
+      ctx.setTransform(this.base, 0, 0, this.base, 0, 0);
+      if (alpha !== 1) ctx.globalAlpha = 1;
       if (u.bones) return;
 
       const top = py - sh.bodyH * S - 8 * z;
-      // 冻结：脚下冰圈
-      if (detail && C.has(u, 'frozen')) {
-        ctx.strokeStyle = 'rgba(159,232,255,0.8)';
-        ctx.lineWidth = 2;
-        ellipse(ctx, px, gy, sh.bodyW * S * 0.6, 4 * z);
-        ctx.stroke();
-      }
       // 血条：近看时全部画；缩远时只画受伤的（满血的一排血条叠在一起会变成一片色块，盖住精灵）
-      const bw = Math.max(24, sh.bodyW * S * 1.05), bh = Math.max(2, 4 * z);
+      // 缩远时血条跟着精灵缩小、压细：血条是最后统一画在最上面的，太粗会把人群盖住
+      const bw = detail ? Math.max(24, sh.bodyW * S * 1.05) : Math.max(6, sh.bodyW * S * 0.9), bh = detail ? Math.max(2, 4 * z) : 1.5;
       const bx = px - bw / 2, by = top - bh;
-      const frac = Math.max(0, Math.min(1, u.hp / u.maxHp));
-      if (detail || frac < 1) {
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-        ctx.fillStyle = SIDE_COLOR[u.side];
-        ctx.fillRect(bx, by, bw * frac, bh);
-      }
-      const shield = u.st.holyShield;
-      if (shield && shield.absorb > 0) {
-        ctx.fillStyle = 'rgba(255,227,138,0.9)';
-        ctx.fillRect(bx, by - 3 * z, Math.min(bw, bw * shield.absorb / 200), 2 * z);
-      }
-      // 状态角标
-      const badges = detail ? BADGES.filter(([id]) => C.has(u, id)) : [];
-      if (badges.length) {
-        const bs = Math.max(10, 13 * z);
-        const total = badges.length * (bs + 2);
-        let x0 = px - total / 2;
-        for (const [id, label, color] of badges) {
-          const stacks = C.stacksOf(u, id);
-          ctx.fillStyle = color;
-          ctx.fillRect(x0, by - bs - 4 * z, bs, bs);
-          ctx.fillStyle = '#111';
-          ctx.font = `700 ${Math.max(9, Math.round(10 * z))}px ${FONT}`;
-          ctx.textAlign = 'center';
-          ctx.fillText(stacks > 1 ? String(stacks) : label, x0 + bs / 2, by - 4 * z - bs / 2 + 4 * z);
-          x0 += bs + 2;
+      const frac = u.hp >= u.maxHp ? 1 : Math.max(0, u.hp / u.maxHp);
+      if (detail || frac < 1) this.bars.push(bx, by, bw, bh, frac, u.side);
+      // 下面这些只有身上挂着状态或者在蓄力才会有，先看一眼有没有，大多数单位到这里就结束了
+      let hasSt = false;
+      for (const id in u.st) { hasSt = true; break; }
+      if (hasSt) {
+        // 冻结：脚下冰圈
+        if (detail && C.has(u, 'frozen')) {
+          ctx.strokeStyle = 'rgba(159,232,255,0.8)';
+          ctx.lineWidth = 2;
+          ellipse(ctx, px, gy, sh.bodyW * S * 0.6, 4 * z);
+          ctx.stroke();
+        }
+        const shield = u.st.holyShield;
+        if (shield && shield.absorb > 0) {
+          ctx.fillStyle = 'rgba(255,227,138,0.9)';
+          ctx.fillRect(bx, by - 3 * z, Math.min(bw, bw * shield.absorb / 200), 2 * z);
+        }
+        // 状态角标
+        if (detail) {
+          let cnt = 0;
+          for (const [id] of BADGES) if (C.has(u, id)) cnt++;
+          if (cnt) {
+            const bs = Math.max(10, 13 * z);
+            let x0 = px - cnt * (bs + 2) / 2;
+            this.setFont(`700 ${Math.max(9, Math.round(10 * z))}px ${FONT}`);
+            ctx.textAlign = 'center';
+            for (const [id, label, color] of BADGES) {
+              if (!C.has(u, id)) continue;
+              const stacks = C.stacksOf(u, id);
+              ctx.fillStyle = color;
+              ctx.fillRect(x0, by - bs - 4 * z, bs, bs);
+              ctx.fillStyle = '#111';
+              ctx.fillText(stacks > 1 ? String(stacks) : label, x0 + bs / 2, by - 4 * z - bs / 2 + 4 * z);
+              x0 += bs + 2;
+            }
+          }
         }
       }
       // 蓄力条（居合、冰封）
@@ -682,7 +843,7 @@
         const gx = this.sx(wx), gy = this.sy(wy);
         const sx = gx, sy = gy - h * z;
         // 落影：飞得越高影子越淡
-        if (h > 4) {
+        if (h > 4 && z >= DETAIL_ZOOM) {
           ctx.fillStyle = `rgba(0,0,0,${Math.max(0.06, 0.2 - h / 600)})`;
           ellipse(ctx, gx, gy, 5 * z, 5 * z * K);
           ctx.fill();
@@ -875,6 +1036,24 @@
             ctx.closePath();
             ctx.fill();
           }
+        } else if (f.kind === 'slap') {
+          // 拍击：目标身上三道爪痕，脚下一圈冰霜炸开
+          const rr = f.r * (0.4 + 0.6 * k) * z;
+          ctx.strokeStyle = `rgba(200,232,255,${0.7 * fade})`;
+          ctx.lineWidth = 4 * z * fade + 1;
+          ellipse(ctx, sx, sy, rr, rr * K);
+          ctx.stroke();
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = `rgba(255,255,255,${fade})`;
+          ctx.lineWidth = Math.max(1.5, 7 * z);
+          const sweep = Math.min(1, k / 0.35);
+          for (let i = -1; i <= 1; i++) {
+            const ox = i * 34 * z;
+            ctx.beginPath();
+            ctx.moveTo(sx + ox - f.dir * 70 * z, sy - 170 * z);
+            ctx.lineTo(sx + ox - f.dir * 70 * z + f.dir * 140 * z * sweep, sy - 170 * z + 150 * z * sweep);
+            ctx.stroke();
+          }
         } else if (f.kind === 'gust') {
           // 振翼：从龙身上往外扩的两圈冰晶气浪，带一圈被吹散的冰尘
           for (const [lag, wd, col] of [[0, 16, '200,230,255'], [0.18, 7, '255,255,255']]) {
@@ -1001,11 +1180,12 @@
         // 飘字：从单位头顶往上飘（位置用 x, y 投影）
         const sx = this.sx(p.x) + p.jx * 0.4;
         const sy = this.sy(p.y) - 70 * z - p.rise * z * 0.5 - 40 * z * k - (p.jy || 0) * z;
+        if (sx < -60 || sx > this.w + 60 || sy < -20 || sy > this.h + 20) continue;   // 画面外的不画
         ctx.globalAlpha = Math.max(0, 1 - Math.pow(k, 2.5));
-        ctx.font = `800 ${Math.max(9, Math.round(p.size * z))}px ${FONT}`;
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-        ctx.strokeText(p.text, sx, sy);
+        this.setFont(`800 ${Math.max(9, Math.round(p.size * z))}px ${FONT}`);
+        // 不描边（描边字很贵）：先画一份往右下偏一个像素的深色字当底
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillText(p.text, sx + 1, sy + 1);
         ctx.fillStyle = p.color;
         ctx.fillText(p.text, sx, sy);
       }
@@ -1015,6 +1195,7 @@
 
     // 小地图：完整地图（x / w、y / h），水晶和单位，镜头视野框
     drawMinimap(canvas, eng) {
+      if ((this.mmTick++ & 3) !== 0) return;       // 每 4 帧画一次
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const r = canvas.getBoundingClientRect();
       const w = Math.max(60, r.width), h = Math.max(30, r.height);
@@ -1029,10 +1210,16 @@
           g.fillStyle = SIDE_COLOR[c.side];
           g.fillRect(mx(c.x) - 3, my(c.y) - 3, 6, 6);
         }
-        for (const u of eng.units) {
-          if (!eng.alive(u)) continue;
-          g.fillStyle = SIDE_COLOR[u.side];
-          g.fillRect(mx(u.x) - 1, my(u.y) - 1, 2, 2);
+        const units = eng.units, kx = w / MW, ky = h / MH;
+        for (let s = 0; s < 2; s++) {
+          g.beginPath();
+          for (let i = 0; i < units.length; i++) {
+            const u = units[i];
+            if (u.side !== s || u.dead || u.hp <= 0) continue;
+            g.rect(u.x * kx - 1, u.y * ky - 1, 2, 2);
+          }
+          g.fillStyle = SIDE_COLOR[s];
+          g.fill();
         }
       }
       const c = this.cam;

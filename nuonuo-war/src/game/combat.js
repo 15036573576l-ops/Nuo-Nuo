@@ -18,10 +18,11 @@
   const stacksOf = (u, id) => (st(u, id) ? st(u, id).stacks || 0 : 0);
 
   // 把单位放到 (x, y)，限制在地图内：x ∈ [r, w - r]，y ∈ [r, h - r]
+  const MAP_W = R.map.w, MAP_H = R.map.h;
   function place(u, x, y) {
     const r = u.radius;
-    u.x = Math.max(r, Math.min(R.map.w - r, x));
-    u.y = Math.max(r, Math.min(R.map.h - r, y));
+    u.x = x < r ? r : x > MAP_W - r ? MAP_W - r : x;
+    u.y = y < r ? r : y > MAP_H - r ? MAP_H - r : y;
   }
 
   // 位移扫掠：沿 (dx, dy) 走，撞上水晶圆（水晶半径 + 单位半径）就停在圆边上，不会越过水晶落到另一侧
@@ -46,6 +47,7 @@
   }
   // 按扫掠结果位移；返回 true 表示被水晶挡住了
   function displace(eng, u, dx, dy) {
+    u.scanFree = 0;      // 被推到了别处：马上重新扫一遍周围的敌人
     const s = sweepFrac(eng, u, dx, dy);
     place(u, u.x + dx * s, u.y + dy * s);
     return s < 1;
@@ -232,7 +234,7 @@
     if (eng.cheats && eng.cheats.godMode[u.side]) { delete u.st.burn; delete u.st.poison; }
     if (has(u, 'burn')) takeHp(eng, u, R.statuses.burn.dps * stacksOf(u, 'burn') * dt, true);
     if (has(u, 'poison')) takeHp(eng, u, R.statuses.poison.dps * stacksOf(u, 'poison') * dt, true); // 无视护甲
-    for (const id of Object.keys(u.st)) {
+    for (const id in u.st) {
       u.st[id].t -= dt;
       if (u.st[id].t <= 0) delete u.st[id];
     }
@@ -481,6 +483,7 @@
         const t = plan.target;
         const fx = u.x, fy = u.y;
         place(u, t.x + u.dir * 24, t.y);
+        u.scanFree = 0;
         u.nextHitMul = 2;
         u.swing = null;
         eng.addFx({ kind: 'dash', x: fx, y: fy, x2: u.x, y2: u.y, color: '#ff6b6b', dur: 0.25 });
@@ -675,18 +678,14 @@
 
   // 手动技能的效果都是全场范围（平面上没有“线”，全场就是整张地图）
   const MANUAL = {
-    // 地狱火雨：全场敌军 400 火伤 + 3 层灼烧，敌方水晶 500 伤害（水晶那一下除掉了护甲倍率）
+    // 地狱火雨：全场敌军 400 火伤 + 3 层灼烧。不打水晶。陨石特效最多画 80 颗，人再多也只是伤害照算
     meteor(eng, sat) {
+      let shown = 0;
       for (const e of eng.units.slice()) {
         if (e.side === sat.side || !eng.alive(e)) continue;
-        eng.addFx({ kind: 'meteor', x: e.x, y: e.y, dur: 0.7 });
+        if (shown++ < 80) eng.addFx({ kind: 'meteor', x: e.x, y: e.y, dur: 0.7 });
         damage(eng, sat, e, 400, 'magic', { skill: true, element: 'fire' });
         applyStatus(eng, e, 'burn', { stacks: 3 });
-      }
-      const c = eng.crystals[1 - sat.side];
-      if (c.hp > 0) {
-        damage(eng, sat, c, 500 / R.damageMatrix.magic.heavy, 'magic', { skill: true });
-        eng.addFx({ kind: 'meteor', x: c.x, y: c.y, dur: 0.7 });
       }
       eng.addFx({ kind: 'tint', color: '255,90,30', dur: 0.5 });
     },
@@ -694,6 +693,7 @@
     dread(eng, sat) {
       for (const e of eng.units.slice()) {
         if (e.side === sat.side || e.dead || e.pendingDeath || e.bones) continue;
+        if (e.def.ccImmune) continue;      // 对面的撒旦、冰龙：免疫控制和击退，威压压不住
         e.charge = null;
         interrupt(eng, e, 'stun');
         e.st.stun = { t: 4 };
@@ -742,10 +742,30 @@
     if (!sats.length) return 'nosatan';
     const cds = eng.sides[side].manualCd;
     if (cds[idx] > 0) return 'cooldown';
-    cds[idx] = eng.cheats && eng.cheats.satanNoCd ? 0 : def.cd;
+    cds[idx] = side === 0 && eng.cheats && eng.cheats.satanNoCd ? 0 : def.cd;
     eng.emit({ t: 'skill', side, uid: 'satan', name: def.name, x: sats[0].x, y: sats[0].y });
     for (const sat of sats) MANUAL[def.id](eng, sat);
     return 'ok';
+  }
+
+  // 电脑的撒旦自动放技能（引擎每 0.5 秒调用一次）。一次只放一个，条件：
+  //   地狱火雨：场上有敌军；深渊威压：某个撒旦 600 范围内有 3 个以上能被控制的敌军；灵魂收割：有敌军生命低于 40%
+  function autoSatan(eng, side) {
+    const cds = eng.sides[side].manualCd;
+    if (cds[0] > 0 && cds[1] > 0 && cds[2] > 0) return;
+    const foe = 1 - side;
+    if (!eng.stat.alive[foe]) return;
+    const sats = eng.units.filter((u) => u.side === side && u.uid === 'satan' && eng.alive(u));
+    if (!sats.length) return;
+    if (cds[0] <= 0) { manualCast(eng, side, 0); return; }
+    if (cds[1] <= 0 && sats.some((s) => foesNear(eng, s, s.x, s.y, 600).filter((e) => !e.def.ccImmune).length >= 3)) {
+      manualCast(eng, side, 1);
+      return;
+    }
+    if (cds[2] <= 0 && !(eng.cheats && eng.cheats.godMode[foe]) &&
+      eng.units.some((e) => e.side === foe && eng.alive(e) && e.hp <= e.maxHp * 0.4)) {
+      manualCast(eng, side, 2);
+    }
   }
 
   // ---------- 冰龙：永冻光环、吐息和三个手动技能（振翼 / 咆哮 / 暴风雪） ----------
@@ -785,6 +805,12 @@
       if (t.hp > 0) damage(eng, u, t, u.atk, u.dmgType, { attack: true });
       return;
     }
+    hitAttack(eng, u, t, u.def.splash);
+  }
+
+  // 拍击：冰龙回头扑到身后的敌人跟前拍一爪子。伤害、溅射和寒霜都和吐息一样
+  function slapHit(eng, u, t) {
+    eng.addFx({ kind: 'slap', x: t.x, y: t.y, dir: u.dir, r: u.def.splash, dur: 0.4 });
     hitAttack(eng, u, t, u.def.splash);
   }
 
@@ -882,6 +908,8 @@
     satanAura,
     frostAura,
     breathHit,
+    slapHit,
+    autoSatan,
     dragonCast,
     manualCast,
     castManual: manualCast,   // 界面端沿用的旧名字

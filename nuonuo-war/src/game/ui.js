@@ -563,11 +563,13 @@
     applyKeys(dt);
     const eng = state.eng;
     if (eng) {
+      const c0 = performance.now();
       if (state.running && !state.paused && !eng.ended) eng.update(dt);
       const events = eng.drainEvents();
       rv.ingest(events);
       if (events.some((e) => e.t === 'end')) state.endAt = now + 1600;
       rv.draw(eng, dt);
+      if (state.running && !state.paused) rv.adapt(dt, performance.now() - c0);
       updateHud();
       updateRoster();
       if (window.GameUI.onFrame) window.GameUI.onFrame(eng);

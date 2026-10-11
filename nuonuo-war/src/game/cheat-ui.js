@@ -43,8 +43,8 @@
     { title: '我方水晶', crystal: 0 },
     { title: '电脑水晶', crystal: 1 },
     { title: '伤害', rows: [
-      { label: '我方伤害', choice: ['dmgMul', 0, [1, 3, 10, 100]] },
-      { label: '电脑伤害', choice: ['dmgMul', 1, [1, 0.5, 0.1, 0]] },
+      { label: '我方伤害', choice: ['dmgMul', 0, [1, 3, 10, 100, 1000, 10000]] },
+      { label: '电脑伤害', choice: ['dmgMul', 1, [0, 0.1, 0.5, 1, 10, 100, 1000, 10000]] },
       { label: '', toggles: [['我方单位无敌', 'godMode', 0], ['电脑单位无敌', 'godMode', 1]] },
     ] },
     { title: '电脑', rows: [
@@ -124,7 +124,7 @@
     const r2 = document.createElement('div');
     r2.className = 'row';
     r2.innerHTML = '<span>数量</span>';
-    for (const n of [100, 1000, 10000]) {
+    for (const n of [100, 1000, 5000]) {
       r2.appendChild(chip(G.fmtCount(n), cfg.batch.count === n, () => { cfg.batch.count = n; }));
     }
     fs.appendChild(r2);
@@ -314,9 +314,9 @@
   };
   let lastPanel = 0;
   G.onFrame = (e) => {
-    const alive = e.units.some((u) => u.side === 0 && u.uid === 'satan' && e.alive(u));
+    const alive = !!e.has[0].satan;          // 各兵种的在场数引擎每步都数好了，不用自己翻一遍单位
     bar.classList.toggle('hidden', !alive);
-    const dragon = e.units.some((u) => u.side === 0 && u.uid === 'frostwing' && e.alive(u));
+    const dragon = !!e.has[0].frostwing;
     dbar.classList.toggle('hidden', !dragon);
     dbar.classList.toggle('up', alive);      // 撒旦技能栏也在时，冰龙这一排挪到它左边
     if (dragon) {
