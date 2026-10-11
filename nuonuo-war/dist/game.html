@@ -2513,8 +2513,8 @@ window.HD_SHEETS = {
   const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
   const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
   const MASS_DEPTH = 3000;  // 批量出兵：横向最多排多深，人再多就挤紧
-  const BATCH_MAX = 2000;   // 批量出兵：同一兵种一次直接上场的上限；超出的进待命队列，场上这个兵种少了再陆续补进来
-  const ENTER_PER_STEP = 60; // 待命队列每步最多进场的个数（陆续进场，不是一下子涌进来）
+  const BATCH_MAX = 2000;   // 批量出兵：每方同时在场的批量兵上限（所有兵种合计）。超出的进待命队列，场上少了再陆续补进来
+  const ENTER_PER_STEP = 60; // 待命队列每方每步最多进场的个数（陆续进场，不是一下子涌进来）
   const BUDGET_MS = 24;     // 一帧里逻辑最多占用的毫秒数，超了就停，欠的时间留到下一帧（慢放，不卡死）
   const ACC_MAX = 0.25;     // 欠的模拟时间上限（秒）：卡顿之后不快进补回来
 
@@ -2818,15 +2818,16 @@ window.HD_SHEETS = {
       return true;
     }
     // 批量出兵（作弊）：不扣金币、人口、冷却，一次出 n 个单独的单位（不是“组”）。
-    // 最多直接上场 BATCH_MAX 个：纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
-    // 超出的进待命队列（见 enterQueues），场上同一兵种少了再陆续进场，不会一次算几十万个单位卡死。
+    // 每方批量兵合计（含已经在场的，所有兵种加起来）不超过 BATCH_MAX：直接上场的个数 = 上限减去场上已有的，
+    // 超出的进待命队列（见 enterQueues），场上少了再陆续进场，不会一次算几十万个单位卡死。
+    // 纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
     // 批量单位不占人口、不计入 spawned，不影响电脑的出兵比例。撒旦这类一次只能有一个的不批量。返回总个数
     massSpawn(side, uid, n) {
       const d = C.BY_ID[uid];
       if (!d || this.ended || !(n > 0)) return 0;
       if (d.playerOnly && side !== 0) return 0;
       if (d.maxOnField) return 0;
-      const now = Math.min(n, BATCH_MAX);
+      const now = Math.min(n, Math.max(0, BATCH_MAX - this.batchOn(side)));
       const M = R.map;
       const band = M.spawnSpread;
       const y0 = M.h / 2 - band / 2;
@@ -2840,6 +2841,7 @@ window.HD_SHEETS = {
         this.addUnit(side, d, {
           x: x0 + dir * col * gx + (this.rng() - 0.5) * 6,
           y: y0 + (row + 0.5) * (band / rows) + (this.rng() - 0.5) * 6,
+          batch: true,
         });
       }
       if (n > now) this.queues.push({ side, uid, left: n - now });
@@ -2850,11 +2852,13 @@ window.HD_SHEETS = {
       const M = R.map;
       return side === 0 ? M.inset + M.crystalRadius + 60 : M.w - (M.inset + M.crystalRadius + 60);
     }
-    // 待命队列：每步把队列里的单位放进出兵带（随机落点，一批批涌上来）。同一兵种场上不超过 BATCH_MAX
+    // 待命队列：每步把队列里的单位放进出兵带（随机落点，一批批涌上来）。每方场上的批量兵合计不超过 BATCH_MAX，
+    // 每方每步最多进场 ENTER_PER_STEP 个。队列按先后顺序进场
     enterQueues() {
+      const room = [BATCH_MAX - this.batchOn(0), BATCH_MAX - this.batchOn(1)];
+      const budget = [ENTER_PER_STEP, ENTER_PER_STEP];
       for (const q of this.queues) {
-        const room = BATCH_MAX - this.count(q.side, q.uid);
-        const k = Math.min(q.left, Math.max(0, room), ENTER_PER_STEP);
+        const k = Math.min(q.left, Math.max(0, room[q.side]), budget[q.side]);
         if (k <= 0) continue;
         const d = C.BY_ID[q.uid];
         const M = R.map;
@@ -2866,11 +2870,20 @@ window.HD_SHEETS = {
           this.addUnit(q.side, d, {
             x: x0 + dir * this.rng() * 600,
             y: y0 + this.rng() * band,
+            batch: true,
           });
         }
         q.left -= k;
+        room[q.side] -= k;
+        budget[q.side] -= k;
       }
       this.queues = this.queues.filter((q) => q.left > 0);
+    }
+    // 一方正在场上的批量兵个数（所有兵种合计）
+    batchOn(side) {
+      let n = 0;
+      for (const u of this.units) if (u.batch && u.side === side && this.alive(u)) n++;
+      return n;
     }
     // 待命队列里还有多少个没上场（一方的合计）
     queued(side) {
@@ -2945,6 +2958,7 @@ window.HD_SHEETS = {
         reviveUsed: false,
         auraT: 0,
         summon: !!o.summon,
+        batch: !!o.batch,           // 批量出兵（作弊）的单位：计入每方的批量上限，见 batchOn
         life: o.life == null ? null : o.life,
         group: o.group || null,
         chase: null,
@@ -4659,7 +4673,8 @@ window.HD_SHEETS = {
     b.pendingUid = null;
     const n = eng.massSpawn(b.side, uid, b.count);
     flash(c.card, 'flash');
-    toast(`${who}批量出兵 ${fmtCount(n)} 个${d.name}` + (n > Engine.BATCH_MAX ? `，${fmtCount(Engine.BATCH_MAX)} 个先上场，其余待命` : ''));
+    const wait = eng.queued(b.side);
+    toast(`${who}批量出兵 ${fmtCount(n)} 个${d.name}` + (wait ? `，其余 ${fmtCount(wait)} 个待命` : ''));
     updateBatchBar();
   }
   function updateBatchBar() {
@@ -5204,8 +5219,8 @@ window.HD_SHEETS = {
     fs.appendChild(r3);
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。一次最多 2000 个直接上场，' +
-      '超出的进待命队列，场上同一兵种少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
+    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。每方同时上场的批量兵最多 2000 个' +
+      '（所有兵种合计），超出的进待命队列，场上少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
     fs.appendChild(hint);
     box.appendChild(fs);
   }

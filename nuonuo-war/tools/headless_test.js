@@ -451,6 +451,21 @@ console.log('机制断言');
   check('清空我方时待命队列也清掉', eng.queued(0) === 0 && eng.count(0, 'rat') === 0);
 }
 {
+  // 每方批量兵合计不超过 2000（所有兵种合计）：连点不叠加，多种兵一起也不超过；100 万只排队，不建单位
+  const eng = new Engine({ seed: 97 });
+  for (let i = 0; i < 5; i++) eng.massSpawn(0, 'rat', 100000);
+  check('连点 5 次 10 万：场上批量兵仍是 2000', eng.batchOn(0) === 2000, `${eng.batchOn(0)}`);
+  eng.wipe(0);
+  eng.massSpawn(0, 'rat', 1500);
+  eng.massSpawn(0, 'slime', 1500);
+  check('两个兵种合计不超过 2000，其余 1000 待命', eng.batchOn(0) === 2000 && eng.queued(0) === 1000,
+    `${eng.batchOn(0)} / ${eng.queued(0)}`);
+  eng.wipe(0);
+  const got = eng.massSpawn(0, 'rat', 1000000);
+  check('一次 100 万：上场 2000，待命 998000（排队只记个数，不建单位）',
+    got === 1000000 && eng.units.length === 2000 && eng.queued(0) === 998000, `${eng.units.length} / ${eng.queued(0)}`);
+}
+{
   // 正常出兵的落点铺开：200 次出兵点的纵向跨度 ≥ 2000 px，不再挤成一条线
   const eng = new Engine({ seed: 94 });
   const ys = [];

@@ -203,7 +203,8 @@
     b.pendingUid = null;
     const n = eng.massSpawn(b.side, uid, b.count);
     flash(c.card, 'flash');
-    toast(`${who}批量出兵 ${fmtCount(n)} 个${d.name}` + (n > Engine.BATCH_MAX ? `，${fmtCount(Engine.BATCH_MAX)} 个先上场，其余待命` : ''));
+    const wait = eng.queued(b.side);
+    toast(`${who}批量出兵 ${fmtCount(n)} 个${d.name}` + (wait ? `，其余 ${fmtCount(wait)} 个待命` : ''));
     updateBatchBar();
   }
   function updateBatchBar() {

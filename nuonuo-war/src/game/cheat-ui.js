@@ -133,8 +133,8 @@
     fs.appendChild(r3);
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。一次最多 2000 个直接上场，' +
-      '超出的进待命队列，场上同一兵种少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
+    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。每方同时上场的批量兵最多 2000 个' +
+      '（所有兵种合计），超出的进待命队列，场上少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
     fs.appendChild(hint);
     box.appendChild(fs);
   }
