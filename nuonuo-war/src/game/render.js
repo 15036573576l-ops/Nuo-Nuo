@@ -45,7 +45,7 @@
   // 为 sprite 动画取得状态：攻击按 swing 的时钟，受击/死亡只播一次
   function pose(u) {
     if (u.bones) return { state: 'death', t: 10, opt: { alpha: 0.95 } };
-    if (u.hitT < 0.22) return { state: 'hit', t: u.hitT, opt: { once: true, flash: true } };
+    if (u.hitT < 0.22 && !u.def.noFlinch) return { state: 'hit', t: u.hitT, opt: { once: true, flash: true } };
     if (u.swing) return { state: 'attack', t: u.swing.t, opt: { period: u.swing.period } };
     if (u.charge) return { state: 'run', t: u.clock, opt: {} };
     if (u.burrowed) return { state: 'run', t: u.clock, opt: { alpha: 0.32 } };
@@ -380,6 +380,7 @@
       }
       this.drawProjectiles(eng);
       this.drawFx(eng);
+      this.drawBlizzard(eng);
       this.drawDust(dt);
       this.drawPopups(dt);
     }
@@ -436,8 +437,9 @@
       }
       for (const u of eng.units) {
         const gx = this.sx(u.x), gy = this.sy(u.y);
-        const py = gy - (u.flying ? FLY_LIFT * z : 0);
-        if (gx < -CULL || gx > w + CULL || py < -CULL || py > h + CULL) continue;
+        const py = gy - (u.flying ? (u.def.lift || FLY_LIFT) * z : 0);
+        const cull = Math.max(CULL, (u.def.cull || 0) * z);     // 冰龙的精灵很大，视野外要多留一截
+        if (gx < -cull || gx > w + cull || py < -cull || py > h + cull) continue;
         ents.push({ k: 0, o: u, y: u.y, sx: gx, sy: py, gy });
       }
       const bodies = [];
@@ -517,16 +519,23 @@
     drawAuras(eng) {
       const ctx = this.ctx, z = this.cam.zoom;
       for (const u of eng.units) {
-        if (u.uid !== 'satan' || !eng.alive(u)) continue;
+        const ice = u.uid === 'frostwing';
+        if ((u.uid !== 'satan' && !ice) || !eng.alive(u)) continue;
         const px = this.sx(u.x), gy = this.sy(u.y);
         const k = 0.5 + 0.5 * Math.sin(this.time * 3);
-        const r = 200 * z;     // 光环半径就是 200，地面圆，走 K 压扁
+        const r = (ice ? 420 : 200) * z;     // 光环半径：撒旦 200、冰龙 420，地面圆，走 K 压扁
         ctx.save();
         ctx.translate(px, gy);
         ctx.scale(1, K);
         const g = ctx.createRadialGradient(0, 0, 10, 0, 0, r);
+        if (ice) {
+          g.addColorStop(0, `rgba(228,239,255,${0.3 + 0.12 * k})`);
+          g.addColorStop(0.55, `rgba(125,216,255,${0.16 + 0.06 * k})`);
+          g.addColorStop(1, 'rgba(47,116,255,0)');
+        } else {
         g.addColorStop(0, `rgba(255,80,30,${0.35 + 0.15 * k})`);
         g.addColorStop(1, 'rgba(120,0,0,0)');
+        }
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -538,6 +547,7 @@
     drawZones(eng) {
       const ctx = this.ctx, z = this.cam.zoom;
       for (const zn of eng.zones) {
+        if (zn.kind === 'blizzard') continue;      // 暴风雪是全屏的，见 drawBlizzard
         const cx = this.sx(zn.x), cy = this.sy(zn.y);
         const rx = zn.r * z, ry = rx * K;
         const k = Math.max(0, Math.min(1, zn.t / 5));
@@ -577,15 +587,15 @@
       const S = z * 1.3 * (u.small ? 0.7 : 1) * (u.def.scale || 1);
       // 地面阴影（飞行单位的影子留在地上）。精灵自己的影子关掉，只画这一处
       if (!u.burrowed) {
-        const rr = Math.max(4, u.radius * z);
+        const rr = Math.max(4, (u.def.shadowR || u.radius) * z);
         ctx.fillStyle = u.flying ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.26)';
         ellipse(ctx, px, gy, rr, rr * K);
         ctx.fill();
       }
-      if (u.uid === 'satan' && u.invuln > 0) {
-        // 不灭无敌期间：身上一圈金色光环（炼狱光环在地面层，见 drawAuras）
+      if ((u.uid === 'satan' || u.def.revive) && u.invuln > 0) {
+        // 不灭 / 冰晶重生的无敌期间：身上一圈光环（地面光环见 drawAuras）
         const k = 0.5 + 0.5 * Math.sin(this.time * 3);
-        ctx.strokeStyle = `rgba(255,200,120,${0.6 + 0.4 * k})`;
+        ctx.strokeStyle = u.def.revive ? `rgba(200,235,255,${0.6 + 0.4 * k})` : `rgba(255,200,120,${0.6 + 0.4 * k})`;
         ctx.lineWidth = 3;
         ellipse(ctx, px, py - sh.bodyH * S * 0.5, sh.bodyW * S * 0.7, sh.bodyH * S * 0.62);
         ctx.stroke();
@@ -812,6 +822,107 @@
           ctx.fillStyle = 'rgba(120,220,255,0.5)';
           ellipse(ctx, sx, yy + 18 * z, 5 * z, 12 * z);
           ctx.fill();
+        } else if (f.kind === 'frostbeam') {
+          // 冰霜吐息：从龙嘴（离地 h）到落点的一道冰雾，外层淡蓝、芯是白的
+          const x0 = this.sx(f.x), y0 = this.sy(f.y) - f.h * z;
+          const x1 = this.sx(f.x2), y1 = this.sy(f.y2) - 12 * z;
+          const grow = Math.min(1, k / 0.25);
+          const ex = x0 + (x1 - x0) * grow, ey = y0 + (y1 - y0) * grow;
+          ctx.lineCap = 'round';
+          for (const [wd, col] of [[f.w * 1.8, `rgba(125,200,255,${0.28 * fade})`], [f.w, `rgba(190,228,255,${0.5 * fade})`], [f.w * 0.4, `rgba(255,255,255,${0.9 * fade})`]]) {
+            ctx.strokeStyle = col;
+            ctx.lineWidth = Math.max(1, wd * z);
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+          }
+        } else if (f.kind === 'frostburst') {
+          // 吐息落点：地面上一片冰霜炸开，边上竖起一圈冰刺
+          const rr = f.r * (0.35 + 0.65 * Math.min(1, k / 0.3)) * z;
+          const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.max(1, rr));
+          gr.addColorStop(0, `rgba(255,255,255,${0.75 * fade})`);
+          gr.addColorStop(0.5, `rgba(160,215,255,${0.45 * fade})`);
+          gr.addColorStop(1, 'rgba(47,116,255,0)');
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.scale(1, K);
+          ctx.translate(-sx, -sy);
+          ctx.fillStyle = gr;
+          ctx.beginPath();
+          ctx.arc(sx, sy, Math.max(1, rr), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          ctx.fillStyle = `rgba(228,243,255,${0.9 * fade})`;
+          const n = Math.max(6, Math.min(16, Math.round(f.r / 18)));
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + f.x * 0.01;
+            const bx = sx + Math.cos(a) * rr * 0.7, by = sy + Math.sin(a) * rr * 0.7 * K;
+            const hh = (18 + 26 * ((i * 7) % 5) / 4) * z * Math.sin(Math.PI * Math.min(1, k * 1.4));
+            ctx.beginPath();
+            ctx.moveTo(bx - 4 * z, by);
+            ctx.lineTo(bx + 4 * z, by);
+            ctx.lineTo(bx + Math.cos(a) * 3 * z, by - hh);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } else if (f.kind === 'gust') {
+          // 振翼：从龙身上往外扩的两圈冰晶气浪，带一圈被吹散的冰尘
+          for (const [lag, wd, col] of [[0, 16, '200,230,255'], [0.18, 7, '255,255,255']]) {
+            const kk = Math.max(0, Math.min(1, (k - lag) / (1 - lag)));
+            if (kk <= 0) continue;
+            const rr = f.r * (1 - Math.pow(1 - kk, 2.2)) * z;
+            ctx.strokeStyle = `rgba(${col},${0.8 * (1 - kk)})`;
+            ctx.lineWidth = wd * z * (1 - kk) + 1;
+            ellipse(ctx, sx, sy, rr, rr * K);
+            ctx.stroke();
+          }
+          const rr = f.r * (1 - Math.pow(1 - k, 2.2)) * z;
+          ctx.fillStyle = `rgba(228,243,255,${0.9 * fade})`;
+          for (let i = 0; i < 46; i++) {
+            const a = i * 2.399 + f.x;
+            const q = 0.82 + 0.18 * ((i * 13) % 7) / 6;
+            const s2 = (2 + (i % 3)) * Math.max(0.5, z * 1.6);
+            ctx.fillRect(sx + Math.cos(a) * rr * q, sy + Math.sin(a) * rr * q * K - (20 + (i % 5) * 14) * z * fade, s2, s2);
+          }
+        } else if (f.kind === 'icelane') {
+          // 咆哮：贯穿全图的一条极寒吐息。先是从龙嘴冲出去的光柱，然后地上留一条慢慢褪掉的冰带
+          const x0 = this.sx(f.x), x1 = this.sx(f.x2);
+          const hw = f.halfW * z * K;
+          const grow = Math.min(1, k / 0.18);
+          const ex = x0 + (x1 - x0) * grow;
+          const lo = Math.min(x0, ex), wd = Math.abs(ex - x0);
+          const gr = ctx.createLinearGradient(0, sy - hw, 0, sy + hw);
+          gr.addColorStop(0, 'rgba(47,116,255,0)');
+          gr.addColorStop(0.5, `rgba(190,228,255,${0.55 * fade})`);
+          gr.addColorStop(1, 'rgba(47,116,255,0)');
+          ctx.fillStyle = gr;
+          ctx.fillRect(lo, sy - hw, wd, hw * 2);
+          const core = Math.max(0, 1 - k / 0.55);
+          if (core > 0) {
+            // 光柱：从龙嘴斜着压到前方 520 处的地面，再贴着冰带中线一路冲到头
+            const dir = x1 >= x0 ? 1 : -1;
+            const tx = x0 + dir * Math.min(520 * z, Math.abs(ex - x0));
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (const [w2, col] of [[170, `rgba(125,200,255,${0.3 * core})`], [90, `rgba(200,232,255,${0.55 * core})`], [34, `rgba(255,255,255,${0.95 * core})`]]) {
+              ctx.strokeStyle = col;
+              ctx.lineWidth = Math.max(1, w2 * z);
+              ctx.beginPath();
+              ctx.moveTo(x0, sy - f.h * z);
+              ctx.lineTo(tx, sy);
+              ctx.lineTo(ex, sy);
+              ctx.stroke();
+            }
+          }
+          // 冰带上的碎冰
+          ctx.fillStyle = `rgba(240,248,255,${0.85 * fade})`;
+          const cnt = Math.min(90, Math.floor(wd / 14));
+          for (let i = 0; i < cnt; i++) {
+            const u2 = ((i * 0.6180339) % 1), v2 = ((i * 0.3819) % 1) * 2 - 1;
+            const s2 = (2 + (i % 4)) * Math.max(0.5, z * 1.5);
+            ctx.fillRect(lo + u2 * wd, sy + v2 * hw * 0.9 - (i % 6) * 5 * z * fade, s2, s2);
+          }
         } else if (f.kind === 'tint') {
           // 全屏染色闪一下
           ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -820,6 +931,38 @@
         }
         ctx.restore();
       }
+    }
+
+    // 暴风雪：屏幕空间的一层。整屏偏冷的雾色 + 顺风斜着刮的雪线，开始和结束各用半秒淡入淡出
+    drawBlizzard(eng) {
+      const zn = eng.zones.find((q) => q.kind === 'blizzard');
+      if (!zn) return;
+      const ctx = this.ctx, w = this.w, h = this.h;
+      const k = Math.max(0, Math.min(1, (zn.dur - zn.t) / 0.5, zn.t / 0.5));
+      ctx.save();
+      ctx.fillStyle = `rgba(150,190,255,${0.2 * k})`;
+      ctx.fillRect(0, 0, w, h);
+      const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.hypot(w, h) * 0.6);
+      g.addColorStop(0, 'rgba(228,239,255,0)');
+      g.addColorStop(1, `rgba(228,239,255,${0.5 * k})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      ctx.lineCap = 'round';
+      const t = this.time;
+      for (let i = 0; i < 150; i++) {
+        const sp = 0.9 + ((i * 37) % 11) / 8;                       // 每条雪线自己的速度
+        const ph = (i * 0.6180339 + t * sp * 0.9) % 1;
+        const lane = (i * 0.3819660 + Math.floor(i * 0.6180339 + t * sp * 0.9) * 0.137) % 1;
+        const x = (1.25 - ph * 1.5) * w, y = (lane * 1.3 - 0.15) * h + ph * h * 0.28;
+        const len = (26 + (i % 5) * 16) * sp;
+        ctx.strokeStyle = `rgba(255,255,255,${(0.25 + 0.5 * ((i * 7) % 5) / 4) * k})`;
+        ctx.lineWidth = 1 + (i % 3) * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + len, y - len * 0.19);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     drawDust(dt) {

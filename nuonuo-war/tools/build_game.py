@@ -24,8 +24,10 @@ SCRIPTS = [
 ]
 
 sprites = {}
-for p in sorted((ROOT / "assets/hd-src").glob("*/*.png")):
-    sprites[f"hd/{p.parent.name}/{p.stem}"] = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
+for p in sorted((ROOT / "assets/hd-src").glob("*/*")):
+    if p.suffix not in (".png", ".webp"):
+        continue
+    sprites[f"hd/{p.parent.name}/{p.stem}"] = f"data:image/{p.suffix[1:]};base64," + base64.b64encode(p.read_bytes()).decode()
 
 html = (ROOT / "src/game.template.html").read_text(encoding="utf-8")
 html = html.replace("/*SPRITES*/", "window.SPRITES = " + json.dumps(sprites) + ";")

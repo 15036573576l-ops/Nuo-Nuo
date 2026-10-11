@@ -143,6 +143,7 @@
     if (!def) return false;
     if (id === 'poison' && hasTag(u, 'undead')) return false;     // 不死免疫中毒
     if (u.def && u.def.ccImmune && CC_IMMUNE[id]) return false;   // 撒旦：魔王之躯（水晶没有 def）
+    if (u.def && u.def.immuneAll && def.kind !== 'blessing') return false;   // 冰龙：极寒之躯，只收祝福
     if (id === 'weaken' && eng.rexAura(u)) return false;          // 王之威仪免疫衰弱
     switch (id) {
       case 'burn':
@@ -255,6 +256,7 @@
     const cheatMul = cheats && srcSide != null ? cheats.dmgMul[srcSide] : 1;
     if (tgt.isCrystal) {
       if (cheats && cheats.invuln[tgt.side]) return 0;
+      if (src && src.def && src.def.crystalSwitch && !eng.dragonCrystal) return 0;   // “冰龙打水晶”关着
       // 水晶：护甲按水晶规则（重甲，攻城 ×3）；攻击方的衰弱、雷克斯光环和目标的易伤照常生效
       let mul = armorMul(tgt, dmgType) * cheatMul;
       if (src) {
@@ -379,13 +381,14 @@
   // ---------- 死亡特性 ----------
   // 返回 true 表示没死，进入骨堆（或撒旦原地复活）
   function tryBones(eng, u) {
-    if (u.uid === 'satan' && !u.reviveUsed) {
+    if ((u.uid === 'satan' || u.def.revive) && !u.reviveUsed) {
+      const ice = !!u.def.revive;
       u.reviveUsed = true;
       u.hp = u.maxHp;
       u.invuln = 3;
       u.st = {};
-      eng.addFx({ kind: 'ring', x: u.x, y: u.y, color: '#ff4d2e', r: 260, dur: 0.9 });
-      eng.emit({ t: 'react', x: u.x, y: u.y, text: '不灭', color: '#ff7a3d' });
+      eng.addFx({ kind: 'ring', x: u.x, y: u.y, color: ice ? '#9fe8ff' : '#ff4d2e', r: 260, dur: 0.9 });
+      eng.emit({ t: 'react', x: u.x, y: u.y, text: u.def.revive || '不灭', color: ice ? '#9fe8ff' : '#ff7a3d' });
       return true;
     }
     if (u.uid !== 'skeleton' || u.summon || u.reformUsed) return false;
@@ -644,6 +647,7 @@
 
   // 区域（火雨）：每个 tick 对圆内的敌方可攻击单位造成伤害并叠灼烧
   function zoneTick(eng, z, dt) {
+    if (z.kind === 'blizzard') { blizzardTick(eng, z, dt); return; }
     z.acc += dt;
     while (z.acc >= z.tick) {
       z.acc -= z.tick;
@@ -743,8 +747,141 @@
     return 'ok';
   }
 
+  // ---------- 冰龙：永冻光环、吐息和三个手动技能（振翼 / 咆哮 / 暴风雪） ----------
+  const DRAGON = BY_ID.frostwing;
+  const dragonsOf = (eng, side) => eng.units.filter((u) => u.side === side && u.uid === 'frostwing' && eng.alive(u));
+  // 嘴的位置：精灵里嘴在脚底锚点前方 135、上方 118 像素，换算成世界单位（渲染时精灵放大 1.3 × scale 倍）
+  const mouthOf = (u) => ({ dx: u.dir * 135 * 1.3 * u.def.scale, h: 118 * 1.3 * u.def.scale + (u.def.lift || 0) });
+
+  // 强制冻结：不看冻结免疫期，直接冻 dur 秒
+  function hardFreeze(eng, e, dur) {
+    if (e.dead || e.pendingDeath || e.bones) return;
+    if (e.def.ccImmune) return;
+    delete e.st.chill;
+    e.st.frozen = { t: Math.max(has(e, 'frozen') ? e.st.frozen.t : 0, dur) };
+    e.imm.frozen = Math.max(e.imm.frozen, dur);
+    e.charge = null;
+    interrupt(eng, e, 'freeze');
+  }
+
+  function frostAura(eng, u, dt) {
+    u.auraT = (u.auraT || 0) - dt;
+    if (u.auraT > 0) return;
+    u.auraT = 0.5;
+    for (const e of eng.unitsNear(u.x, u.y, 420)) {
+      if (e.side === u.side || !eng.targetable(e)) continue;
+      damage(eng, u, e, 30000, 'magic', { skill: true, element: 'frost' });
+      applyStatus(eng, e, 'chill', { stacks: 1 });
+    }
+  }
+
+  // 冰霜吐息（普通攻击）：从嘴里喷到目标位置，落点溅射。目标是水晶时只打水晶
+  function breathHit(eng, u, t) {
+    const m = mouthOf(u);
+    eng.addFx({ kind: 'frostbeam', x: u.x + m.dx, y: u.y, h: m.h, x2: t.x, y2: t.y, w: 34, dur: 0.45 });
+    eng.addFx({ kind: 'frostburst', x: t.x, y: t.y, r: u.def.splash, dur: 0.6 });
+    if (t.isCrystal) {
+      if (t.hp > 0) damage(eng, u, t, u.atk, u.dmgType, { attack: true });
+      return;
+    }
+    hitAttack(eng, u, t, u.def.splash);
+  }
+
+  // 冰龙做一次咆哮动作（借用攻击动画，不出手）。从张口那一帧开始播，技能一放嘴里就有吐息
+  function roarPose(u, dur) {
+    u.swing = { t: dur * 0.3, period: dur, releaseT: 0, target: null, hit: true };
+  }
+
+  const DRAGON_SKILLS = {
+    // 振翼：每头龙 900 范围内的敌军 150000 冰霜伤害，从龙身上往外吹飞 420（巨型也吹），冻结 3 秒
+    gust(eng, dragons) {
+      for (const d of dragons) {
+        for (const e of eng.unitsNear(d.x, d.y, 900)) {
+          if (e.side === d.side || !eng.targetable(e)) continue;
+          damage(eng, d, e, 150000, 'magic', { skill: true, element: 'frost' });
+          if (e.hp <= 0) continue;
+          const dx = e.x - d.x, dy = e.y - d.y;
+          const dist = Math.hypot(dx, dy);
+          const nx = dist > 1e-6 ? dx / dist : d.dir, ny = dist > 1e-6 ? dy / dist : 0;
+          displace(eng, e, nx * 420, ny * 420);
+          e.hitT = 0;
+          hardFreeze(eng, e, 3);
+        }
+        eng.addFx({ kind: 'gust', x: d.x, y: d.y, r: 900, dur: 0.9 });
+      }
+      eng.addFx({ kind: 'tint', color: '170,205,255', dur: 0.4 });
+    },
+    // 咆哮：每头龙朝前一条贯穿全图的带（半宽 260），800000 伤害，冻结 6 秒；敌方水晶在带上也打
+    roar(eng, dragons) {
+      for (const d of dragons) {
+        roarPose(d, 1.6);
+        for (const e of foesRect(eng, d, R.map.w, 260)) {
+          damage(eng, d, e, 800000, 'magic', { skill: true, element: 'frost' });
+          hardFreeze(eng, e, 6);
+        }
+        const c = eng.crystals[1 - d.side];
+        if (c.hp > 0 && (c.x - d.x) * d.dir > 0 && Math.abs(c.y - d.y) <= 260 + c.radius) {
+          damage(eng, d, c, 800000, 'magic', { skill: true });
+        }
+        const m = mouthOf(d);
+        const far = d.dir > 0 ? R.map.w : 0;
+        eng.addFx({ kind: 'icelane', x: d.x + m.dx, y: d.y, h: m.h, x2: far, halfW: 260, dur: 1.4 });
+      }
+      eng.addFx({ kind: 'tint', color: '125,216,255', dur: 0.6 });
+    },
+    // 暴风雪：全场一个区域，持续 8 秒，结算见 blizzardTick。已经在刮就重新计时
+    blizzard(eng, dragons) {
+      const d = dragons[0];
+      for (const x of dragons) roarPose(x, 1.6);
+      const old = eng.zones.find((z) => z.kind === 'blizzard' && z.side === d.side);
+      if (old) { old.t = 8; old.src = d; return; }
+      eng.addZone({ kind: 'blizzard', side: d.side, x: d.x, y: d.y, r: 0, t: 8, dur: 8, tick: 0.5, acc: 0, src: d });
+    },
+  };
+
+  // 暴风雪：每 0.5 秒全场敌军 60000 伤害并冻住，敌方水晶 20000；最后一下绝对零度 5000000
+  function blizzardTick(eng, z, dt) {
+    z.acc += dt;
+    const foes = () => eng.units.filter((e) => e.side !== z.side && eng.targetable(e));
+    while (z.acc >= z.tick) {
+      z.acc -= z.tick;
+      for (const e of foes()) {
+        damage(eng, z.src, e, 60000, 'magic', { skill: true, element: 'frost' });
+        hardFreeze(eng, e, 1);
+      }
+      const c = eng.crystals[1 - z.side];
+      if (c.hp > 0) damage(eng, z.src, c, 20000 / R.damageMatrix.magic.heavy, 'magic', { skill: true });
+    }
+    if (z.t <= 0 && !z.done) {
+      z.done = true;
+      for (const e of foes()) {
+        damage(eng, z.src, e, 5000000, 'magic', { skill: true, element: 'frost' });
+        eng.addFx({ kind: 'frostburst', x: e.x, y: e.y, r: 60, dur: 0.5 });
+      }
+      eng.emit({ t: 'react', x: z.src.x, y: z.src.y, text: '绝对零度', color: '#e4efff' });
+      eng.addFx({ kind: 'tint', color: '228,239,255', dur: 0.9 });
+    }
+  }
+
+  // 玩家手动释放冰龙的技能：返回 'ok' / 'nodragon' / 'cooldown'（序号越界返回 'no'）
+  function dragonCast(eng, side, idx) {
+    const def = DRAGON.manualSkills[idx];
+    if (!def) return 'no';
+    const dragons = dragonsOf(eng, side);
+    if (!dragons.length) return 'nodragon';
+    const cds = eng.sides[side].dragonCd;
+    if (cds[idx] > 0) return 'cooldown';
+    cds[idx] = eng.cheats && eng.cheats.dragonNoCd ? 0 : def.cd;
+    eng.emit({ t: 'skill', side, uid: 'frostwing', name: def.name, x: dragons[0].x, y: dragons[0].y });
+    DRAGON_SKILLS[def.id](eng, dragons);
+    return 'ok';
+  }
+
   window.Combat = {
     satanAura,
+    frostAura,
+    breathHit,
+    dragonCast,
     manualCast,
     castManual: manualCast,   // 界面端沿用的旧名字
     BY_ID,

@@ -230,7 +230,7 @@
     const im = img(a.src);
     if (!im || !im.complete) return {};
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = !!sh.smooth;     // 像素画不平滑；渲染出来的冰龙要平滑
     ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
     ctx.translate(Math.round(x), Math.round(y));
     ctx.scale(face * s, s);

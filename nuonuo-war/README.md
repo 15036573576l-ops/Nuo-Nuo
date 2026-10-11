@@ -12,6 +12,21 @@
 
 测试：`node tools/headless_test.js`（机制断言、技能场景、撒旦、规模压力、AI 对 AI 20 局）。
 
+特殊单位（`src/special.js`，只有玩家能出）：
+
+- 撒旦：`X` 召唤，`J K L` 手动技能。
+- 冰龙：`V` 召唤，50 万金币，不占人口、不限数量，数值是撒旦的 1000 倍。`B N M` 手动技能（振翼、咆哮、暴风雪）。
+  画面右侧的“冰龙打水晶”按钮（`H`）关掉以后，冰龙的攻击和技能都打不到敌方水晶。
+
+冰龙的图是从三维模型渲染出来的，重新出图：
+
+```
+npm i three@0.128.0 playwright
+node tools/render_frostwing.js /tmp/frostwing-frames
+python3 tools/build_frostwing.py /tmp/frostwing-frames
+python3 tools/build_hd.py && python3 tools/build_game.py
+```
+
 契约见 `docs/PLANE_SPEC.md`，实现说明见 `docs/IMPLEMENTATION.md`，规则上的取舍见 `docs/QUESTIONS.md`。
 
 ## 图鉴

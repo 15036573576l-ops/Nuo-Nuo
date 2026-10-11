@@ -103,6 +103,25 @@
   .card.evil .av-wrap { background: radial-gradient(circle at 50% 35%, #7a1f24, #2a0a0c 80%); }
   .card.evil .cd { background: rgba(0, 0, 0, 0.5); }
 
+  .card.frost { background: linear-gradient(180deg, #0b1c44, #02050c); }
+  .card.frost::before { background: linear-gradient(90deg, #2f74ff, #e4efff, #9a86ff); }
+  .card.frost .key { color: #a9c9ff; }
+  .card.frost .nm { color: #e4efff; }
+  .card.frost .cost span { display: none; }
+  .card.frost .cost b { color: #ffd45c; }
+  .card.frost .av-wrap { background: radial-gradient(circle at 50% 35%, #2a55b8, #040a1a 80%); }
+  .card.frost canvas.av { image-rendering: auto; }
+  .card.frost .cd { background: rgba(0, 0, 0, 0.5); }
+  .card.frost.no .nm { color: #7f93b8; }
+
+  /* 冰龙技能栏：和撒旦技能栏同一个位置，两个都在时排在它左边（往上叠会挡住右侧的镜头按钮） */
+  #dragonbar { position: absolute; right: 12px; bottom: 12px; z-index: 6; display: flex; gap: 10px; }
+  #dragonbar.hidden { display: none; }
+  #dragonbar.up { right: 240px; }
+  .sk-btn.ice { background: radial-gradient(circle at 50% 35%, #1b3f8f, #02050c); }
+  .sk-btn.ice .k { color: #cfe3ff; }
+  #camctl .cbtn.ice.on { background: linear-gradient(135deg, #a9c9ff, #2f74ff); color: #fff; }
+
   /* 撒旦技能栏：右下角，撒旦在场时才显示 */
   #satanbar { position: absolute; right: 12px; bottom: 12px; z-index: 6; display: flex; gap: 10px; }
   #satanbar.hidden { display: none; }
@@ -128,7 +147,7 @@
   #cheat input[type=number] { width: 120px; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px; font: inherit; font-variant-numeric: tabular-nums; }
 
   /* 兵种简介浮窗 */
-  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); background: rgba(255, 255, 255, 0.97); color: var(--ink); border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 10px 28px rgba(20, 48, 32, 0.22); }
+  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); max-height: calc(100% - 12px); overflow: hidden; background: rgba(255, 255, 255, 0.97); color: var(--ink); border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 10px 28px rgba(20, 48, 32, 0.22); }
   #tip h3 { margin: 0 0 2px; font-size: 16px; }
   #tip h3 small { color: var(--ink-2); font-size: 12px; font-weight: 500; }
   #tip .meta { color: var(--ink-2); font-size: 12px; }
@@ -189,6 +208,8 @@
     .actions { margin-top: 10px; }
     .tall-only { display: none; }
     #satanbar { right: 8px; bottom: 8px; gap: 8px; }
+    #dragonbar { right: 8px; bottom: 8px; gap: 8px; }
+    #dragonbar.up { right: 196px; }
     .sk-btn { width: 52px; height: 52px; font-size: 11px; }
     #camctl { top: 42%; right: 8px; gap: 6px; }
     #camctl .cbtn { width: 34px; height: 34px; font-size: 18px; }
@@ -225,10 +246,12 @@
       <button class="btn cbtn" id="btn-zin" title="放大（]）">+</button>
       <button class="btn cbtn" id="btn-zout" title="缩小（[）">−</button>
       <button class="btn cbtn wide" id="btn-follow" title="镜头跟随战斗中心；手动操作后暂停 3 秒">跟随战斗</button>
+      <button class="btn cbtn wide ice on" id="btn-dcrystal" title="关掉以后，冰龙的攻击和技能都打不到敌方水晶（H）">冰龙打水晶：开</button>
     </div>
     <div id="batchbar" class="hidden"><span id="batch-text"></span><button id="batch-cancel" title="退出批量出兵（Esc）">取消</button></div>
     <div id="toast"></div>
     <div id="satanbar" class="hidden"></div>
+    <div id="dragonbar" class="hidden"></div>
     <aside id="cheat" class="hidden" aria-label="作弊菜单"></aside>
     <div id="tip"></div>
   </main>
@@ -245,8 +268,8 @@
         <button data-level="normal" class="on"><b>普通</b><small>会针对玩家的兵种</small></button>
         <button data-level="hard"><b>困难</b><small>收入 ×1.15，会抢经济、攒钱大招</small></button>
       </div>
-      <p>出兵：轻点下方兵种（划动和长按不出兵），或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦（只有玩家能用）。长按兵种看简介。</p>
-      <p>镜头：拖动或双指捏合，手指往右拖，画面往左走；滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b> 放手动技能，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
+      <p>出兵：轻点下方兵种（划动和长按不出兵），或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦、<b>V</b> 召唤冰龙（只有玩家能用）。长按兵种看简介。</p>
+      <p>镜头：拖动或双指捏合，手指往右拖，画面往左走；滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b>、冰龙在场时 <b>B N M</b> 放手动技能，<b>H</b> 开关“冰龙打水晶”，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
       <div class="actions"><button class="btn primary" id="btn-start">开始对战</button></div>
     </div>
   </section>

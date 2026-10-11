@@ -130,11 +130,12 @@
         radius: R.map.crystalRadius, hp: R.map.crystalHp, maxHp: R.map.crystalHp, cd: 0, st: {},
       }));
       this.sides = [0, 1].map(() => ({
-        gold: R.economy.startGold, supplyUsed: 0, cdLeft: {}, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0],
+        gold: R.economy.startGold, supplyUsed: 0, cdLeft: {}, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0], dragonCd: [0, 0, 0],
       }));
+      this.dragonCrystal = true;   // 冰龙能不能打水晶（界面上的开关，关掉以后冰龙的任何伤害都打不到水晶）
       // 作弊开关：只由界面的作弊菜单修改，默认全关，不影响正常对局和无头测试
       this.cheats = {
-        infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false,
+        infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
         incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
       };
       this.units = [];
@@ -228,6 +229,10 @@
       const dx = t.x - u.x, dy = t.y - u.y;
       return dx * dx + dy * dy <= r * r;
     }
+    // 这个单位现在能不能把水晶当目标（“冰龙打水晶”关着时冰龙不行）
+    hitsCrystal(u) {
+      return !(u.def.crystalSwitch && !this.dragonCrystal);
+    }
     // 普通索敌：攻击距离内最优的单位（远程优先给蝙蝠）；没有就看水晶。巨像只找水晶
     findTarget(u) {
       const foe = 1 - u.side;
@@ -245,10 +250,10 @@
       }
       if (best) return best;
       const c = this.crystals[foe];
-      return c.hp > 0 && this.inReach(u, c) ? c : null;
+      return c.hp > 0 && this.hitsCrystal(u) && this.inReach(u, c) ? c : null;
     }
     validInRange(u, t) {
-      if (t.isCrystal) return t.hp > 0 && this.inReach(u, t);
+      if (t.isCrystal) return t.hp > 0 && this.hitsCrystal(u) && this.inReach(u, t);
       return this.targetable(t) && this.inReach(u, t) && (!t.flying || u.canHitAir);
     }
     // 追击目标：仇恨范围 max(320, range + 200) 内最近的可攻击敌人；蝙蝠是全图最近的远程敌人；巨像和不能动的没有
@@ -512,6 +517,7 @@
       let t = s.target;
       if (!this.validInRange(u, t)) t = this.findTarget(u);
       if (!t) return;
+      if (u.def.breath) { C.breathHit(this, u, t); return; }   // 冰龙：吐息直接落在目标位置，不走投射物
       if (t.isCrystal) {
         // 水晶和单位一样吃攻击方的 onHit（亡灵君主的易伤等，applyStatus 只让水晶收下易伤）
         const hit = () => {
@@ -745,6 +751,7 @@
         if (s === 0 && this.cheats.infiniteGold) S.gold = Math.max(S.gold, 999999);
         for (const k of Object.keys(S.cdLeft)) S.cdLeft[k] = Math.max(0, S.cdLeft[k] - dt);
         for (let i = 0; i < 3; i++) S.manualCd[i] = this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
+        for (let i = 0; i < 3; i++) S.dragonCd[i] = this.cheats.dragonNoCd ? 0 : Math.max(0, S.dragonCd[i] - dt);
       }
 
       if (this.queues.length) this.enterQueues();
@@ -761,6 +768,7 @@
         if (u.skillCd > 0) u.skillCd = Math.max(0, u.skillCd - dt);
         u.shieldWallT = Math.max(0, u.shieldWallT - dt);
         if (u.uid === 'satan' && this.alive(u)) C.satanAura(this, u, dt);
+        if (u.uid === 'frostwing' && this.alive(u)) C.frostAura(this, u, dt);
         if (u.life != null) {
           u.life -= dt;
           // 召唤物到时间消散：hp 归零再登记死亡，结算时不会被当成“没死”而留在场上

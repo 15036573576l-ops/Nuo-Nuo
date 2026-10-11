@@ -756,6 +756,43 @@ window.HD_SHEETS = {
    }
   }
  },
+ "frostwing": {
+  "fw": 544,
+  "fh": 336,
+  "cx": 215,
+  "foot": 268,
+  "bodyW": 240,
+  "bodyH": 205,
+  "anims": {
+   "idle": {
+    "src": "hd/frostwing/Fly",
+    "n": 12,
+    "fps": 8
+   },
+   "run": {
+    "src": "hd/frostwing/Fly",
+    "n": 12,
+    "fps": 12
+   },
+   "attack": {
+    "src": "hd/frostwing/Roar",
+    "n": 16,
+    "fps": 8,
+    "release": 5
+   },
+   "hit": {
+    "src": "hd/frostwing/Fly",
+    "n": 12,
+    "fps": 12
+   },
+   "death": {
+    "src": "hd/frostwing/Death",
+    "n": 10,
+    "fps": 5
+   }
+  },
+  "smooth": true
+ },
  "_projectiles": {
   "arrow": {
    "src": "hd/huntress_2/Arrow",

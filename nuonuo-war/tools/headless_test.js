@@ -1,7 +1,7 @@
 // 糯糯战记 · 无头测试（node tools/headless_test.js）
 // 1. 机制断言：伤害倍率、状态、元素反应、骨堆、索敌、分离推挤、越界、飞行与巨像穿行、水晶易伤、撒旦、作弊默认关闭，
 //    经济和人口上限随时间涨、出兵带铺开、批量出兵、帧推进
-// 2. 技能定点场景：12 个主动技能，外加撒旦三个手动技能
+// 2. 技能定点场景：12 个主动技能，外加撒旦三个手动技能、冰龙（数值、打水晶开关、三个手动技能）
 // 3. 规模压力：200 对 200、1000 个单位同屏，每步平均耗时（只跑逻辑，不渲染）
 // 4. AI 对 AI：默认 20 局（环境变量 GAMES 可改），不渲染；统计时长、在场峰值、胜负、超时、NaN、灰鼠群占比、雷克斯出场
 // 只读游戏源码，不改任何文件。
@@ -36,6 +36,7 @@ const { Engine, AI, Combat: C, RULES: R } = W;
 const DT = Engine.DT;                  // 固定步长（1/30 秒）
 const MY = R.map.h / 2;                // 战场中线
 const SATAN = W.SPECIAL_UNITS.find((d) => d.id === 'satan');
+const DRAGON = W.SPECIAL_UNITS.find((d) => d.id === 'frostwing');
 let failures = 0;
 function check(name, cond, detail) {
   if (cond) {
@@ -384,7 +385,7 @@ console.log('机制断言');
   const eng = new Engine({ seed: 49 });
   const ch = eng.cheats;
   const off = ch.infiniteGold === false && ch.noCd === false && ch.noSupply === false &&
-    ch.aiOff === false && ch.satanNoCd === false &&
+    ch.aiOff === false && ch.satanNoCd === false && ch.dragonNoCd === false &&
     ch.incomeMul.every((v) => v === 1) && ch.dmgMul.every((v) => v === 1) &&
     ch.invuln.every((v) => v === false) && ch.godMode.every((v) => v === false);
   check('作弊默认全部关闭', off);
@@ -623,6 +624,131 @@ console.log('\n撒旦手动技能（J / K / L）');
     r === 'ok' && !eng.alive(a) && !eng.alive(b) && eng.alive(big) && eng.sides[0].gold === 50 &&
     sat.hp > hp0 && summons === 2,
     `r=${r} gold=${eng.sides[0].gold} summons=${summons}`);
+}
+
+// 冰龙：玩家专属、50 万金币、不限数量，数值是撒旦的 1000 倍；打水晶可以关；三个手动技能
+console.log('\n冰龙（V 召唤，B / N / M 技能，H 开关打水晶）');
+{
+  check('冰龙数值是撒旦的 1000 倍，造价 50 万，不占人口，没有数量上限',
+    DRAGON.hp === SATAN.hp * 1000 && DRAGON.atk === SATAN.atk * 1000 && DRAGON.cost === 500000 &&
+    DRAGON.supply === 0 && !DRAGON.maxOnField && DRAGON.playerOnly === true);
+  const eng = new Engine({ seed: 70 });
+  check('冰龙不在电脑兵种池，电脑召唤不了、也不能批量出',
+    !W.UNITS.some((d) => d.id === 'frostwing') && eng.canSpawn(1, 'frostwing') === 'no' &&
+    eng.spawn(1, 'frostwing') === false && eng.massSpawn(1, 'frostwing', 5) === 0);
+  check('金币不够 50 万时出不了冰龙', eng.canSpawn(0, 'frostwing') === 'gold');
+  eng.sides[0].gold = 1500000;
+  let n = 0;
+  for (let i = 0; i < 3; i++) { if (eng.spawn(0, 'frostwing')) n++; step(eng, 45); }
+  check('金币够就能一头接一头出，没有上场数量限制',
+    n === 3 && eng.count(0, 'frostwing') === 3 && eng.sides[0].gold < 100 + 50 * 5 && eng.sides[0].supplyUsed === 0,
+    `n=${n} gold=${eng.sides[0].gold.toFixed(0)}`);
+  check('玩家可以批量出冰龙', eng.massSpawn(0, 'frostwing', 4) === 4 && eng.count(0, 'frostwing') === 7);
+}
+{
+  // 免疫控制和持续伤害；第一次死亡原地重生
+  const eng = new Engine({ seed: 71 });
+  const d = eng.addUnit(0, DRAGON, at(2000));
+  for (const id of ['stun', 'root', 'burn', 'poison', 'chill', 'weaken', 'vulnerable']) C.applyStatus(eng, d, id, { dur: 3, stacks: 3 });
+  check('冰龙免疫控制、灼烧、中毒和诅咒', Object.keys(d.st).length === 0, Object.keys(d.st).join(','));
+  d.hp = 0;
+  eng.markDead(d);
+  eng.settleDeaths();
+  check('冰龙第一次死亡原地重生（回满血、无敌）', eng.alive(d) && d.hp === d.maxHp && d.invuln > 0 && d.reviveUsed);
+}
+{
+  // 永冻光环 + 吐息：身边的敌人很快死光
+  const eng = new Engine({ seed: 72 });
+  const d = eng.addUnit(0, DRAGON, at(2000));
+  const foes = [];
+  for (let i = 0; i < 12; i++) foes.push(eng.addUnit(1, def('titan'), at(2200 + i * 30, MY + (i % 3) * 60)));
+  step(eng, 90);
+  check('冰龙身边的敌人 3 秒内全灭（永冻光环 30000 / 0.5 秒）', foes.every((f) => !eng.alive(f)) && d.hp === d.maxHp);
+}
+{
+  // 打水晶开关：开着时到了水晶跟前一口吐息打穿；关着时怎么打、怎么放技能水晶都不掉血
+  const mk = (on) => {
+    const eng = new Engine({ seed: 73 });
+    eng.dragonCrystal = on;
+    const c = eng.crystals[1];
+    const d = eng.addUnit(0, DRAGON, at(c.x - 300));
+    return { eng, c, d };
+  };
+  const a = mk(true);
+  step(a.eng, 90);
+  check('“冰龙打水晶”开着：冰龙打爆敌方水晶', a.eng.ended && a.eng.winner === 0);
+  const b = mk(false);
+  step(b.eng, 150);
+  const r1 = C.dragonCast(b.eng, 0, 1);
+  const r2 = C.dragonCast(b.eng, 0, 2);
+  step(b.eng, 300);
+  check('“冰龙打水晶”关着：普通攻击、咆哮、暴风雪都伤不到水晶，对局不结束',
+    r1 === 'ok' && r2 === 'ok' && b.c.hp === b.c.maxHp && !b.eng.ended && b.eng.findTarget(b.d) === null,
+    `hp=${b.c.hp}`);
+  b.eng.dragonCrystal = true;
+  step(b.eng, 90);
+  check('重新打开以后冰龙又能打水晶', b.c.hp < b.c.maxHp);
+}
+{
+  const eng = new Engine({ seed: 74 });
+  check('没有冰龙时手动释放返回 nodragon', C.dragonCast(eng, 0, 0) === 'nodragon');
+}
+{
+  // B 振翼：900 范围内受伤、吹飞（巨型也吹）、冻结；范围外不受影响
+  const eng = new Engine({ seed: 75 });
+  eng.dragonCrystal = false;
+  eng.cheats.dmgMul[0] = 0.001;       // 伤害压低，方便看吹飞和冻结（不然一下就死了）
+  eng.addUnit(0, DRAGON, at(2000));
+  const near = eng.addUnit(1, def('titan'), at(2600));
+  const out = eng.addUnit(1, def('titan'), at(3200));
+  const r = C.dragonCast(eng, 0, 0);
+  check('振翼（B）：900 范围内的敌军受伤、被吹飞 420、冻结；范围外没事',
+    r === 'ok' && near.hp < near.maxHp && Math.abs(near.x - 3020) < 1 && C.has(near, 'frozen') &&
+    out.hp === out.maxHp && out.x === 3200 && !C.has(out, 'frozen') && eng.sides[0].dragonCd[0] === 10,
+    `r=${r} x=${near.x.toFixed(0)}`);
+  check('振翼冷却中再次释放返回 cooldown', C.dragonCast(eng, 0, 0) === 'cooldown');
+}
+{
+  // N 咆哮：朝前整条带（半宽 260）800000 伤害并冻结 6 秒；带外和身后不受影响
+  const eng = new Engine({ seed: 76 });
+  eng.dragonCrystal = false;
+  eng.cheats.dmgMul[0] = 0.001;
+  eng.addUnit(0, DRAGON, at(2000));
+  const inLane = eng.addUnit(1, def('titan'), at(7000, MY + 200));
+  const offLane = eng.addUnit(1, def('titan'), at(5000, MY + 500));
+  const behind = eng.addUnit(1, def('titan'), at(1200));
+  const r = C.dragonCast(eng, 0, 1);
+  check('咆哮（N）：前方整条带上的敌军受伤并冻结 6 秒；带外和身后没事',
+    r === 'ok' && inLane.hp < inLane.maxHp && inLane.st.frozen && Math.abs(inLane.st.frozen.t - 6) < 0.01 &&
+    offLane.hp === offLane.maxHp && behind.hp === behind.maxHp,
+    `r=${r}`);
+}
+{
+  // M 暴风雪：8 秒里全场敌军一直挨打、一直冻着；结束时绝对零度
+  const eng = new Engine({ seed: 77 });
+  eng.dragonCrystal = false;
+  eng.cheats.dmgMul[0] = 0.00001;
+  eng.addUnit(0, DRAGON, at(600));
+  const far = eng.addUnit(1, def('titan'), at(7000, MY + 900));
+  const r = C.dragonCast(eng, 0, 2);
+  step(eng, 60);
+  const mid = far.hp, frozenMid = C.has(far, 'frozen');
+  const x0 = far.x;
+  step(eng, 195);
+  check('暴风雪（M）：全场敌军每 0.5 秒受伤、全程冻住，8 秒后绝对零度再打一下，区域消失',
+    r === 'ok' && mid < far.maxHp && frozenMid && far.x === x0 && far.hp < mid - 40 &&
+    !eng.zones.some((z) => z.kind === 'blizzard'),
+    `mid=${mid.toFixed(1)} end=${far.hp.toFixed(1)}`);
+}
+{
+  // 满数值：暴风雪一个 tick 就清场
+  const eng = new Engine({ seed: 78 });
+  eng.dragonCrystal = false;
+  eng.addUnit(0, DRAGON, at(600));
+  for (let i = 0; i < 40; i++) eng.addUnit(1, def(['rex', 'titan', 'brown', 'bats'][i % 4]), at(3000 + i * 100, MY + (i % 7) * 100));
+  C.dragonCast(eng, 0, 2);
+  step(eng, 20);
+  check('满数值的暴风雪 1 个 tick 清场', eng.stat.alive[1] === 0, `alive=${eng.stat.alive[1]}`);
 }
 
 // ---------- 3. 规模压力（只跑逻辑，不渲染） ----------

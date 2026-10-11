@@ -11,8 +11,8 @@
   const LEVELS = window.AI_LEVELS;
   const Render = window.Render;
 
-  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'X'];
-  const TIER_COLOR = { T3: '#9aa4b8', T2: '#6fd3ff', T1: '#b58cff', 'T0.5': '#ffb36b', T0: '#ffd166' };
+  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'X', 'V'];
+  const TIER_COLOR = { T3: '#9aa4b8', T2: '#6fd3ff', T1: '#b58cff', 'T0.5': '#ffb36b', T0: '#ffd166', SSSSSSS: '#9fe8ff' };
   const DMG = { slash: '斩击', pierce: '穿刺', magic: '魔法', siege: '攻城' };
   const ARMOR = { none: '无甲', light: '轻甲', heavy: '重甲' };
   const ELEM = { fire: '火', frost: '冰', poison: '毒', shadow: '暗', holy: '圣' };
@@ -49,6 +49,7 @@
   };
   const normKey = (e) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
   const fmtCount = (n) => (n >= 1e4 ? `${+(n / 1e4).toFixed(1)} 万` : String(n));
+  const fmtBig = (n) => (n >= 1e8 ? `${+(n / 1e8).toFixed(2)}亿` : n >= 1e4 ? `${+(n / 1e4).toFixed(1)}万` : String(n));
 
   const state = {
     eng: null,
@@ -72,7 +73,7 @@
     const roster = $('roster');
     roster.innerHTML = '';
     ALL.forEach((d, i) => {
-      const card = el('div', d.playerOnly ? 'card evil' : 'card');
+      const card = el('div', d.cardClass ? `card ${d.cardClass}` : d.playerOnly ? 'card evil' : 'card');
       card.dataset.uid = d.id;
       card.style.setProperty('--tier', TIER_COLOR[d.tier] || '#888');
       card.appendChild(el('span', 'key', KEYS[i]));
@@ -84,7 +85,7 @@
       card.appendChild(wrap);
       card.appendChild(el('div', 'nm', d.name));
       const cost = el('div', 'cost');
-      cost.innerHTML = `<i class="coin"></i><b>${d.cost}</b><span>人口${d.supply}</span>`;
+      cost.innerHTML = `<i class="coin"></i><b>${fmtBig(d.cost)}</b><span>人口${d.supply}</span>`;
       card.appendChild(cost);
       const cd = el('div', 'cd');
       card.appendChild(cd);
@@ -248,8 +249,8 @@
     const elem = d.element ? ELEM[d.element] : '无';
     return `
       <h3>${d.name} <small>${d.title} · ${d.tier}</small></h3>
-      <div class="meta">${d.role} · 💰${d.cost} · 人口${d.supply} · 冷却${d.cooldown} 秒${d.count > 1 ? ` · 一次 ${d.count} 只` : ''}</div>
-      <div class="meta">${DMG[d.dmg]} → ${ARMOR[d.armor]} · 元素：${elem} · 射程 ${d.range} · 移速 ${d.speed} · 生命 ${d.hp}</div>
+      <div class="meta">${d.role} · 💰${fmtBig(d.cost)} · 人口${d.supply} · 冷却${d.cooldown} 秒${d.count > 1 ? ` · 一次 ${d.count} 只` : ''}</div>
+      <div class="meta">${DMG[d.dmg]} → ${ARMOR[d.armor]} · 元素：${elem} · 射程 ${d.range} · 移速 ${d.speed} · 生命 ${fmtBig(d.hp)}</div>
       ${traits}
       ${skill}
       <div class="meta">克制：${d.strongVs.join('、')}</div>
@@ -286,7 +287,7 @@
       if (!im || !im.complete || !im.naturalWidth) continue;
       const g = c.av.getContext('2d');
       g.clearRect(0, 0, 48, 48);
-      g.imageSmoothingEnabled = false;
+      g.imageSmoothingEnabled = !!sh.smooth;
       const sw = Math.min(sh.fw, Math.max(20, sh.bodyW * 2.1));
       const shh = Math.min(sh.fh, Math.max(20, sh.bodyH * 1.9));
       const sx = Math.max(0, Math.min(sh.fw - sw, sh.cx - sw / 2));

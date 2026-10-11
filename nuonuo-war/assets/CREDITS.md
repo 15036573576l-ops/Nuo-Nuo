@@ -16,3 +16,7 @@
   - 地址：https://chierit.itch.io/boss-demon-slime
   - 协议：CC-BY 4.0（可商用、可修改，**需要署名**）
   - 用途：特殊单位“撒旦”（`hd-src/satan/`）。原图朝左，已逐帧水平镜像并拼成条带图。
+
+- **极寒之翼**（冰龙）
+  - 来源：`frostwing-src/frostwing.html`，本项目自己的 three.js 程序化模型（three.js r128，MIT 协议，只在出图时用）
+  - 用途：特殊单位“冰龙”（`hd-src/frostwing/`）。由 `tools/render_frostwing.js` 离屏渲染、`tools/build_frostwing.py` 抠出透明通道并拼成条带图，原图朝左，已水平镜像。
