@@ -2,7 +2,7 @@
 // 设计说明见 docs/DESIGN.md；所有规则、状态、克制倍率都在 src/rules.js
 //
 // 字段约定
-//   cost 金币 / supply 人口 / cooldown 同兵种出兵冷却(秒) / count 一次出几个
+//   cost 金币 / supply 人口 / count 一次出几个（出兵没有冷却，有钱有人口就能出）
 //   hp 单个生命 / armor: none 无甲 | light 轻甲 | heavy 重甲
 //   atk 单次伤害 / aspd 每秒攻击次数 / dmg: slash 斩击 | pierce 穿刺 | magic 魔法 | siege 攻城
 //   range 攻击距离(像素，>=100 视为远程，远程可以打飞行单位) / speed 移速(像素/秒) / splash 溅射半径
@@ -14,7 +14,7 @@ window.UNITS = [
   // ======================= T3 · 廉价基础兵（无主动技能） =======================
   {
     id: 'rat', name: '灰鼠群', title: '下水道大军', tier: 'T3', sheet: 'rat', role: '蜂拥骚扰',
-    cost: 50, supply: 1, cooldown: 4, count: 4,
+    cost: 50, supply: 1, count: 4,
     hp: 65, armor: 'none', atk: 8, aspd: 1.5, dmg: 'slash', range: 20, speed: 78,
     element: null, onHit: [], tags: ['swarm'],
     traits: [{ name: '鼠潮', desc: '一次出 4 只。被溅射伤害打到会成片倒下。' }],
@@ -24,7 +24,7 @@ window.UNITS = [
   },
   {
     id: 'skeleton', name: '骷髅兵', title: '不安分的白骨', tier: 'T3', sheet: 'skeleton', role: '廉价前排',
-    cost: 50, supply: 1, cooldown: 3, count: 1,
+    cost: 50, supply: 1, count: 1,
     hp: 240, armor: 'light', atk: 18, aspd: 1.0, dmg: 'slash', range: 26, speed: 45,
     element: null, onHit: [], tags: ['undead'],
     traits: [{ name: '白骨重组', desc: '第一次死亡时散成骨堆，3 秒后以 50% 生命站起来。骨堆期间被圣属性或溅射打中就彻底散架。' }],
@@ -34,7 +34,7 @@ window.UNITS = [
   },
   {
     id: 'mushroom', name: '毒菇', title: '孢子投手', tier: 'T3', sheet: 'mushroom', role: '叠毒远程',
-    cost: 60, supply: 1, cooldown: 4, count: 1,
+    cost: 60, supply: 1, count: 1,
     hp: 280, armor: 'none', atk: 10, aspd: 0.8, dmg: 'magic', range: 140, speed: 40,
     element: 'poison', onHit: [{ status: 'poison', stacks: 1 }], tags: [], projectile: 'spore',
     traits: [{ name: '孢子爆裂', desc: '死亡时炸开毒云，给周围 80 范围内的敌人叠 2 层中毒。' }],
@@ -44,7 +44,7 @@ window.UNITS = [
   },
   {
     id: 'slime', name: '史莱姆', title: '一团会分裂的果冻', tier: 'T3', sheet: 'slime', role: '耐打前排',
-    cost: 65, supply: 1, cooldown: 4, count: 1,
+    cost: 65, supply: 1, count: 1,
     hp: 400, armor: 'none', atk: 14, aspd: 0.9, dmg: 'slash', range: 26, speed: 32,
     element: null, onHit: [], tags: [],
     traits: [
@@ -57,7 +57,7 @@ window.UNITS = [
   },
   {
     id: 'goblin', name: '地精爆破手', title: '扔炸弹的', tier: 'T3', sheet: 'goblin', role: '溅射/攻城',
-    cost: 90, supply: 1, cooldown: 5, count: 1,
+    cost: 90, supply: 1, count: 1,
     hp: 190, armor: 'light', atk: 28, aspd: 0.55, dmg: 'siege', range: 150, speed: 50, splash: 55,
     element: null, onHit: [], tags: [], projectile: 'bomb', groundOnly: true,
     traits: [{ name: '抛投炸弹', desc: '炸弹落地产生 55 范围溅射。只能打地面单位。攻城伤害对水晶 ×3。' }],
@@ -69,7 +69,7 @@ window.UNITS = [
   // ======================= T2 · 专精兵种（克制关系的主力） =======================
   {
     id: 'sylvie', name: '希尔薇', title: '精灵射手', tier: 'T2', sheet: 'huntress_2', role: '远程/防空',
-    cost: 120, supply: 1, cooldown: 6, count: 1,
+    cost: 120, supply: 1, count: 1,
     hp: 220, armor: 'light', atk: 20, aspd: 1.1, dmg: 'pierce', range: 250, speed: 45,
     element: null, onHit: [], tags: [], projectile: 'arrow',
     traits: [{ name: '鹰眼', desc: '对飞行单位伤害 ×1.5。' }],
@@ -82,7 +82,7 @@ window.UNITS = [
   },
   {
     id: 'freya', name: '芙蕾雅', title: '投矛猎手', tier: 'T2', sheet: 'huntress', role: '反突进',
-    cost: 130, supply: 1, cooldown: 6, count: 1,
+    cost: 130, supply: 1, count: 1,
     hp: 320, armor: 'light', atk: 34, aspd: 0.7, dmg: 'pierce', range: 160, speed: 48,
     element: null, onHit: [], tags: [], projectile: 'spear',
     traits: [{ name: '反冲锋', desc: '对正在冲锋、突进或飞行的目标伤害 ×2，并打断它的冲锋。' }],
@@ -95,7 +95,7 @@ window.UNITS = [
   },
   {
     id: 'bats', name: '吸血蝠群', title: '夜空里的牙', tier: 'T2', sheet: 'bat', role: '飞行切后排',
-    cost: 140, supply: 2, cooldown: 7, count: 2,
+    cost: 140, supply: 2, count: 2,
     hp: 150, armor: 'none', atk: 16, aspd: 1.2, dmg: 'slash', range: 30, speed: 72,
     element: null, onHit: [], tags: ['flying'],
     traits: [
@@ -108,7 +108,7 @@ window.UNITS = [
   },
   {
     id: 'brown', name: '布朗', title: '盾卫', tier: 'T2', sheet: 'warrior_3', role: '防远程前排',
-    cost: 110, supply: 1, cooldown: 6, count: 1,
+    cost: 110, supply: 1, count: 1,
     hp: 820, armor: 'heavy', atk: 24, aspd: 0.8, dmg: 'slash', range: 30, speed: 36,
     element: null, onHit: [], tags: [],
     traits: [],
@@ -121,7 +121,7 @@ window.UNITS = [
   },
   {
     id: 'mimic', name: '贪婪宝箱', title: '会咬人的存钱罐', tier: 'T2', sheet: 'mimic', role: '经济',
-    cost: 150, supply: 1, cooldown: 10, count: 1, maxOnField: 3,
+    cost: 150, supply: 1, count: 1, maxOnField: 3,
     hp: 500, armor: 'heavy', atk: 80, aspd: 0.5, dmg: 'slash', range: 40, speed: 0,
     element: null, onHit: [], tags: ['stationary'],
     traits: [
@@ -134,7 +134,7 @@ window.UNITS = [
   },
   {
     id: 'zass', name: '札斯', title: '赤巾浪人', tier: 'T2', sheet: 'martial_hero', role: '刺客',
-    cost: 160, supply: 2, cooldown: 8, count: 1,
+    cost: 160, supply: 2, count: 1,
     hp: 460, armor: 'light', atk: 50, aspd: 1.0, dmg: 'slash', range: 30, speed: 60,
     element: null, onHit: [], tags: [],
     traits: [{ name: '见切', desc: '30% 几率闪避穿刺伤害。' }],
@@ -149,7 +149,7 @@ window.UNITS = [
   // ======================= T1 · 战术核心 =======================
   {
     id: 'seren', name: '赛伦', title: '焰之术士', tier: 'T1', sheet: 'evil_wizard', role: '范围法师',
-    cost: 230, supply: 2, cooldown: 10, count: 1,
+    cost: 230, supply: 2, count: 1,
     hp: 300, armor: 'none', atk: 24, aspd: 0.7, dmg: 'magic', range: 210, speed: 38, splash: 40,
     element: 'fire', onHit: [{ status: 'burn', stacks: 1 }], tags: [],
     traits: [],
@@ -162,7 +162,7 @@ window.UNITS = [
   },
   {
     id: 'lein', name: '莱恩', title: '圣骑士', tier: 'T1', sheet: 'hero_knight', role: '突进前排',
-    cost: 250, supply: 2, cooldown: 10, count: 1,
+    cost: 250, supply: 2, count: 1,
     hp: 900, armor: 'heavy', atk: 40, aspd: 0.9, dmg: 'slash', range: 36, speed: 40,
     element: 'holy', onHit: [], tags: [],
     traits: [
@@ -178,7 +178,7 @@ window.UNITS = [
   },
   {
     id: 'worm', name: '熔岩蠕虫', title: '地底来客', tier: 'T1', sheet: 'fire_worm', role: '钻地远程',
-    cost: 230, supply: 2, cooldown: 10, count: 1,
+    cost: 230, supply: 2, count: 1,
     hp: 560, armor: 'light', atk: 28, aspd: 0.8, dmg: 'magic', range: 170, speed: 44,
     element: 'fire', onHit: [{ status: 'burn', stacks: 1 }], tags: [], projectile: 'fireball',
     traits: [
@@ -194,7 +194,7 @@ window.UNITS = [
   },
   {
     id: 'xuan', name: '玄', title: '武僧', tier: 'T1', sheet: 'martial_hero_3', role: '打断/控制',
-    cost: 200, supply: 2, cooldown: 9, count: 1,
+    cost: 200, supply: 2, count: 1,
     hp: 700, armor: 'light', atk: 34, aspd: 1.3, dmg: 'slash', range: 26, speed: 50,
     element: null, onHit: [], tags: [],
     traits: [{ name: '化劲', desc: '每受到 4 次攻击，第 4 次完全格挡。' }],
@@ -209,7 +209,7 @@ window.UNITS = [
   // ======================= T0.5 · 改变战局的兵种 =======================
   {
     id: 'mordred', name: '摩尔德', title: '亡灵君主', tier: 'T0.5', sheet: 'evil_wizard_2', role: '召唤/诅咒',
-    cost: 320, supply: 3, cooldown: 14, count: 1,
+    cost: 320, supply: 3, count: 1,
     hp: 480, armor: 'none', atk: 45, aspd: 0.8, dmg: 'magic', range: 230, speed: 34,
     element: 'shadow', onHit: [{ status: 'vulnerable' }], tags: [],
     traits: [{ name: '暗蚀', desc: '攻击给目标施加【易伤】诅咒：受到的伤害 +20%，持续 5 秒。' }],
@@ -222,7 +222,7 @@ window.UNITS = [
   },
   {
     id: 'olin', name: '奥林', title: '霜语大法师', tier: 'T0.5', sheet: 'wizard_pack', role: '控场法师',
-    cost: 300, supply: 3, cooldown: 14, count: 1,
+    cost: 300, supply: 3, count: 1,
     hp: 420, armor: 'none', atk: 34, aspd: 0.8, dmg: 'magic', range: 240, speed: 36,
     element: 'frost', onHit: [{ status: 'chill', stacks: 1 }], tags: [],
     traits: [],
@@ -235,7 +235,7 @@ window.UNITS = [
   },
   {
     id: 'yaksha', name: '夜叉', title: '鬼面剑豪', tier: 'T0.5', sheet: 'martial_hero_2', role: '蓄力爆发',
-    cost: 300, supply: 3, cooldown: 12, count: 1,
+    cost: 300, supply: 3, count: 1,
     hp: 600, armor: 'light', atk: 48, aspd: 0.8, dmg: 'slash', range: 36, speed: 45,
     element: 'shadow', onHit: [{ status: 'weaken' }], tags: [],
     traits: [{ name: '鬼面', desc: '攻击给目标施加【衰弱】诅咒：造成的伤害 -30%，持续 5 秒。' }],
@@ -250,7 +250,7 @@ window.UNITS = [
   // ======================= T0 · 王牌 =======================
   {
     id: 'rex', name: '雷克斯', title: '征服王', tier: 'T0', sheet: 'king_1', role: '光环/祝福',
-    cost: 480, supply: 4, cooldown: 20, count: 1,
+    cost: 480, supply: 4, count: 1,
     hp: 1300, armor: 'heavy', atk: 60, aspd: 0.7, dmg: 'slash', range: 46, speed: 32, splash: 50,
     element: 'holy', onHit: [], tags: ['giant'],
     traits: [
@@ -266,7 +266,7 @@ window.UNITS = [
   },
   {
     id: 'titan', name: '格罗姆', title: '碎城巨人', tier: 'T0', sheet: 'warrior_1', role: '直取水晶',
-    cost: 420, supply: 4, cooldown: 20, count: 1,
+    cost: 420, supply: 4, count: 1,
     hp: 2200, armor: 'heavy', atk: 90, aspd: 0.5, dmg: 'siege', range: 40, speed: 26,
     element: null, onHit: [], tags: ['giant'],
     traits: [

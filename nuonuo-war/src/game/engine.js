@@ -133,12 +133,14 @@
         radius: R.map.crystalRadius, hp: R.map.crystalHp, maxHp: R.map.crystalHp, cd: 0, st: {},
       }));
       this.sides = [0, 1].map(() => ({
-        gold: R.economy.startGold, supplyUsed: 0, cdLeft: {}, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0], dragonCd: [0, 0, 0],
+        gold: R.economy.startGold, supplyUsed: 0, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0], dragonCd: [0, 0, 0],
+        pick: null,       // 最后一次选中的兵种：统一派兵时出它
       }));
+      this.waveN = 0;     // 已经过了几次统一派兵
       this.dragonCrystal = true;   // 冰龙能不能打水晶（界面上的开关，关掉以后冰龙的任何伤害都打不到水晶）
       // 作弊开关：只由界面的作弊菜单修改，默认全关，不影响正常对局和无头测试
       this.cheats = {
-        infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
+        infiniteGold: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
         incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
       };
       this.units = [];
@@ -396,7 +398,6 @@
       if (this.ended) return 'ended';
       if (d.playerOnly && side !== 0 && !(cheat && d.cheatSend)) return 'no';
       const ch = side === 0 ? this.cheats : null;
-      if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
       if (S.supplyUsed + d.supply > this.supplyCap() && !(ch && ch.noSupply)) return 'supply';
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
@@ -408,7 +409,7 @@
       const S = this.sides[side];
       S.gold -= d.cost;
       S.supplyUsed += d.supply;
-      S.cdLeft[uid] = d.cooldown;
+      if (!cheat) S.pick = uid;     // 自己买的才算“选中”，作弊派送的不算
       S.spawned[uid] = (S.spawned[uid] || 0) + d.count;
       const group = { supply: d.supply, members: d.count };   // 一次出几个，人口只算一次
       const fp = this.formationPoint(side);
@@ -425,7 +426,25 @@
       this.emit({ t: 'spawn', side, uid });
       return true;
     }
-    // 批量出兵（作弊）：不扣金币、人口、冷却，一次出 n 个单独的单位（不是“组”）。
+    // 选中一个兵种（不出兵）：点了卡片但钱不够时界面会调它，到统一派兵时就出这个
+    setPick(side, uid) {
+      if (C.BY_ID[uid]) this.sides[side].pick = uid;
+    }
+    // 离下一次统一派兵还有几秒
+    waveLeft() {
+      const W = R.economy.waveEvery;
+      return W - (this.time % W);
+    }
+    // 统一派兵：把这一方的金币一直换成最后选中的兵种，换到买不起（或者人口满了、到数量上限）为止。返回出了几组
+    dispatch(side) {
+      const uid = this.sides[side].pick;
+      if (!uid) return 0;
+      let n = 0;
+      while (n < R.economy.waveMax && this.spawn(side, uid)) n++;
+      if (n) this.emit({ t: 'wave', side, uid, n });
+      return n;
+    }
+    // 批量出兵（作弊）：不扣金币、人口，一次出 n 个单独的单位（不是“组”）。
     // 每方批量兵合计（含已经在场的，所有兵种加起来）不超过 BATCH_MAX：直接上场的个数 = 上限减去场上已有的，
     // 超出的进待命队列（见 enterQueues），场上少了再陆续进场，不会一次算几十万个单位卡死。
     // 纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
@@ -925,10 +944,17 @@
         const mimics = this.has[s].mimic || 0;
         S.gold += (this.baseIncome(s) + 3 * mimics) * this.cheats.incomeMul[s] * dt;
         if (s === 0 && this.cheats.infiniteGold) S.gold = Math.max(S.gold, 999999);
-        for (const k of Object.keys(S.cdLeft)) S.cdLeft[k] = Math.max(0, S.cdLeft[k] - dt);
         // “撒旦技能无冷却”只给我方：电脑的撒旦是自动放技能的，没有冷却就停不下来了
         for (let i = 0; i < 3; i++) S.manualCd[i] = s === 0 && this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
         for (let i = 0; i < 3; i++) S.dragonCd[i] = this.cheats.dragonNoCd ? 0 : Math.max(0, S.dragonCd[i] - dt);
+      }
+
+      // 统一派兵：每过 waveEvery 秒双方各来一次（“电脑停止出兵”开着时电脑不派）
+      const wave = Math.floor(this.time / R.economy.waveEvery);
+      if (wave > this.waveN) {
+        this.waveN = wave;
+        this.dispatch(0);
+        if (!this.cheats.aiOff) this.dispatch(1);
       }
 
       if (this.queues.length) this.enterQueues();

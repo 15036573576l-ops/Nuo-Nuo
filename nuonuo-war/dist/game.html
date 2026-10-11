@@ -87,13 +87,21 @@
   .card .cost { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .card .cost .coin { width: 9px; height: 9px; }
   .card .cost b { font-size: 11px; color: #b96f00; }
-  .card .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(29, 43, 58, 0.42); pointer-events: none; transition: height 0.1s linear; }
   .card.no canvas.av { opacity: 0.42; filter: grayscale(0.6); }
   .card.no .nm { color: #98a2ae; }
   .card.no .cost b { color: #b7a27a; }
   .card.flash { box-shadow: 0 0 0 2px var(--mint) inset, 0 2px 6px rgba(20, 48, 32, 0.12); }
   .card.bad { box-shadow: 0 0 0 2px var(--foe) inset, 0 2px 6px rgba(20, 48, 32, 0.12); }
   .card.pending { box-shadow: 0 0 0 3px var(--gold) inset, 0 0 14px rgba(245, 165, 36, 0.6); }
+  .card.picked { box-shadow: 0 0 0 2px var(--me) inset, 0 2px 8px rgba(62, 166, 255, 0.45); }
+  /* ×10 开关：粘在出兵栏最左边 */
+  .card.mult { position: sticky; left: 0; margin-left: -10px; border-radius: 0 16px 16px 0; z-index: 3; flex: 0 0 54px; border: none; justify-content: center; gap: 2px; padding: 0; background: #eef2f6; color: var(--ink-2); box-shadow: 4px 0 10px rgba(20, 48, 32, 0.16), 0 2px 6px rgba(20, 48, 32, 0.12); }
+  .card.mult::before { background: #c5ced8; }
+  .card.mult b { font-size: 17px; line-height: 1; }
+  .card.mult span { font-size: 10px; }
+  .card.mult.on { background: linear-gradient(135deg, var(--gold-2), var(--gold)); color: #3a2300; }
+  .card.mult.on::before { background: #b96f00; }
+  #wave { font-size: 11px; font-weight: 700; color: #2b6cb0; background: rgba(62, 166, 255, 0.14); padding: 1px 8px; border-radius: 99px; font-variant-numeric: tabular-nums; }
   .card.evil { background: linear-gradient(180deg, #4a1218, #1c0708); }
   .card.evil::before { background: #ff4d3d; }
   .card.evil .key { color: #ffb8a4; }
@@ -101,7 +109,6 @@
   .card.evil .cost span { color: #f2c6b8; }
   .card.evil .cost b { color: #ffd45c; }
   .card.evil .av-wrap { background: radial-gradient(circle at 50% 35%, #7a1f24, #2a0a0c 80%); }
-  .card.evil .cd { background: rgba(0, 0, 0, 0.5); }
 
   .card.frost { background: linear-gradient(180deg, #0b1c44, #02050c); }
   .card.frost::before { background: linear-gradient(90deg, #2f74ff, #e4efff, #9a86ff); }
@@ -111,7 +118,6 @@
   .card.frost .cost b { color: #ffd45c; }
   .card.frost .av-wrap { background: radial-gradient(circle at 50% 35%, #2a55b8, #040a1a 80%); }
   .card.frost canvas.av { image-rendering: auto; }
-  .card.frost .cd { background: rgba(0, 0, 0, 0.5); }
   .card.frost.no .nm { color: #7f93b8; }
 
   /* 冰龙技能栏：和撒旦技能栏同一个位置，两个都在时排在它左边（往上叠会挡住右侧的镜头按钮） */
@@ -224,7 +230,7 @@
       <div class="bar"><div class="fill" id="hp-me"></div></div>
     </div>
     <div id="center">
-      <div class="econ"><i class="coin"></i><b id="gold">300</b><span id="income">+10/秒</span></div>
+      <div class="econ"><i class="coin"></i><b id="gold">300</b><span id="income">+10/秒</span><span id="wave" title="统一派兵：到点把金币全换成最后选中的兵种">派兵 60s · 未选</span></div>
       <div class="pop"><span id="pop">人口 0/40</span><div class="popbar"><div id="pop-fill"></div></div></div>
     </div>
     <div class="side foe">
@@ -268,7 +274,8 @@
         <button data-level="normal" class="on"><b>普通</b><small>会针对玩家的兵种</small></button>
         <button data-level="hard"><b>困难</b><small>收入 ×1.15，会抢经济、攒钱大招</small></button>
       </div>
-      <p>出兵：轻点下方兵种（划动和长按不出兵），或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦、<b>V</b> 召唤冰龙（只有玩家能用）。长按兵种看简介。</p>
+      <p>出兵：轻点下方兵种（划动和长按不出兵），或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦、<b>V</b> 召唤冰龙（只有玩家能用）。长按兵种看简介。出兵没有冷却；最左边的 <b>×10</b>（<b>G</b>）开着时点一下出 10 组。</p>
+      <p>每 60 秒一次统一派兵：双方各自把金币全换成最后点过的那个兵种（钱不够时点一下也算选中）。</p>
       <p>镜头：拖动或双指捏合，手指往右拖，画面往左走；滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b>、冰龙在场时 <b>B N M</b> 放手动技能，<b>H</b> 开关“冰龙打水晶”，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
       <div class="actions"><button class="btn primary" id="btn-start">开始对战</button></div>
     </div>
@@ -317,6 +324,8 @@ window.RULES = {
     supplyBase: 40,
     supplyGrowth: 0.8,
     corpseSeconds: 6,
+    waveEvery: 60,      // 统一派兵：每过这么多秒，双方各自把金币全换成最后选中的那个兵种
+    waveMax: 500,       // 一次统一派兵最多出多少组（开着无限金币、无限人口时不至于出个没完）
   },
 
   // 伤害类型 × 护甲类型 倍率。最大 1.35、最小 0.6：全部是软克制，没有“打不动”
@@ -349,7 +358,6 @@ window.RULES = {
     { id: 'smite', name: '圣裁', when: '圣属性命中不死单位或骨堆', effect: '伤害 ×1.5；骨堆直接散架。' },
   ],
 
-  tierSpawnCooldown: { T3: '3-5s', T2: '6-10s', T1: '9-10s', 'T0.5': '12-14s', T0: '20s' },
 };
 
 </script>
@@ -359,7 +367,7 @@ window.RULES = {
 // 设计说明见 docs/DESIGN.md；所有规则、状态、克制倍率都在 src/rules.js
 //
 // 字段约定
-//   cost 金币 / supply 人口 / cooldown 同兵种出兵冷却(秒) / count 一次出几个
+//   cost 金币 / supply 人口 / count 一次出几个（出兵没有冷却，有钱有人口就能出）
 //   hp 单个生命 / armor: none 无甲 | light 轻甲 | heavy 重甲
 //   atk 单次伤害 / aspd 每秒攻击次数 / dmg: slash 斩击 | pierce 穿刺 | magic 魔法 | siege 攻城
 //   range 攻击距离(像素，>=100 视为远程，远程可以打飞行单位) / speed 移速(像素/秒) / splash 溅射半径
@@ -371,7 +379,7 @@ window.UNITS = [
   // ======================= T3 · 廉价基础兵（无主动技能） =======================
   {
     id: 'rat', name: '灰鼠群', title: '下水道大军', tier: 'T3', sheet: 'rat', role: '蜂拥骚扰',
-    cost: 50, supply: 1, cooldown: 4, count: 4,
+    cost: 50, supply: 1, count: 4,
     hp: 65, armor: 'none', atk: 8, aspd: 1.5, dmg: 'slash', range: 20, speed: 78,
     element: null, onHit: [], tags: ['swarm'],
     traits: [{ name: '鼠潮', desc: '一次出 4 只。被溅射伤害打到会成片倒下。' }],
@@ -381,7 +389,7 @@ window.UNITS = [
   },
   {
     id: 'skeleton', name: '骷髅兵', title: '不安分的白骨', tier: 'T3', sheet: 'skeleton', role: '廉价前排',
-    cost: 50, supply: 1, cooldown: 3, count: 1,
+    cost: 50, supply: 1, count: 1,
     hp: 240, armor: 'light', atk: 18, aspd: 1.0, dmg: 'slash', range: 26, speed: 45,
     element: null, onHit: [], tags: ['undead'],
     traits: [{ name: '白骨重组', desc: '第一次死亡时散成骨堆，3 秒后以 50% 生命站起来。骨堆期间被圣属性或溅射打中就彻底散架。' }],
@@ -391,7 +399,7 @@ window.UNITS = [
   },
   {
     id: 'mushroom', name: '毒菇', title: '孢子投手', tier: 'T3', sheet: 'mushroom', role: '叠毒远程',
-    cost: 60, supply: 1, cooldown: 4, count: 1,
+    cost: 60, supply: 1, count: 1,
     hp: 280, armor: 'none', atk: 10, aspd: 0.8, dmg: 'magic', range: 140, speed: 40,
     element: 'poison', onHit: [{ status: 'poison', stacks: 1 }], tags: [], projectile: 'spore',
     traits: [{ name: '孢子爆裂', desc: '死亡时炸开毒云，给周围 80 范围内的敌人叠 2 层中毒。' }],
@@ -401,7 +409,7 @@ window.UNITS = [
   },
   {
     id: 'slime', name: '史莱姆', title: '一团会分裂的果冻', tier: 'T3', sheet: 'slime', role: '耐打前排',
-    cost: 65, supply: 1, cooldown: 4, count: 1,
+    cost: 65, supply: 1, count: 1,
     hp: 400, armor: 'none', atk: 14, aspd: 0.9, dmg: 'slash', range: 26, speed: 32,
     element: null, onHit: [], tags: [],
     traits: [
@@ -414,7 +422,7 @@ window.UNITS = [
   },
   {
     id: 'goblin', name: '地精爆破手', title: '扔炸弹的', tier: 'T3', sheet: 'goblin', role: '溅射/攻城',
-    cost: 90, supply: 1, cooldown: 5, count: 1,
+    cost: 90, supply: 1, count: 1,
     hp: 190, armor: 'light', atk: 28, aspd: 0.55, dmg: 'siege', range: 150, speed: 50, splash: 55,
     element: null, onHit: [], tags: [], projectile: 'bomb', groundOnly: true,
     traits: [{ name: '抛投炸弹', desc: '炸弹落地产生 55 范围溅射。只能打地面单位。攻城伤害对水晶 ×3。' }],
@@ -426,7 +434,7 @@ window.UNITS = [
   // ======================= T2 · 专精兵种（克制关系的主力） =======================
   {
     id: 'sylvie', name: '希尔薇', title: '精灵射手', tier: 'T2', sheet: 'huntress_2', role: '远程/防空',
-    cost: 120, supply: 1, cooldown: 6, count: 1,
+    cost: 120, supply: 1, count: 1,
     hp: 220, armor: 'light', atk: 20, aspd: 1.1, dmg: 'pierce', range: 250, speed: 45,
     element: null, onHit: [], tags: [], projectile: 'arrow',
     traits: [{ name: '鹰眼', desc: '对飞行单位伤害 ×1.5。' }],
@@ -439,7 +447,7 @@ window.UNITS = [
   },
   {
     id: 'freya', name: '芙蕾雅', title: '投矛猎手', tier: 'T2', sheet: 'huntress', role: '反突进',
-    cost: 130, supply: 1, cooldown: 6, count: 1,
+    cost: 130, supply: 1, count: 1,
     hp: 320, armor: 'light', atk: 34, aspd: 0.7, dmg: 'pierce', range: 160, speed: 48,
     element: null, onHit: [], tags: [], projectile: 'spear',
     traits: [{ name: '反冲锋', desc: '对正在冲锋、突进或飞行的目标伤害 ×2，并打断它的冲锋。' }],
@@ -452,7 +460,7 @@ window.UNITS = [
   },
   {
     id: 'bats', name: '吸血蝠群', title: '夜空里的牙', tier: 'T2', sheet: 'bat', role: '飞行切后排',
-    cost: 140, supply: 2, cooldown: 7, count: 2,
+    cost: 140, supply: 2, count: 2,
     hp: 150, armor: 'none', atk: 16, aspd: 1.2, dmg: 'slash', range: 30, speed: 72,
     element: null, onHit: [], tags: ['flying'],
     traits: [
@@ -465,7 +473,7 @@ window.UNITS = [
   },
   {
     id: 'brown', name: '布朗', title: '盾卫', tier: 'T2', sheet: 'warrior_3', role: '防远程前排',
-    cost: 110, supply: 1, cooldown: 6, count: 1,
+    cost: 110, supply: 1, count: 1,
     hp: 820, armor: 'heavy', atk: 24, aspd: 0.8, dmg: 'slash', range: 30, speed: 36,
     element: null, onHit: [], tags: [],
     traits: [],
@@ -478,7 +486,7 @@ window.UNITS = [
   },
   {
     id: 'mimic', name: '贪婪宝箱', title: '会咬人的存钱罐', tier: 'T2', sheet: 'mimic', role: '经济',
-    cost: 150, supply: 1, cooldown: 10, count: 1, maxOnField: 3,
+    cost: 150, supply: 1, count: 1, maxOnField: 3,
     hp: 500, armor: 'heavy', atk: 80, aspd: 0.5, dmg: 'slash', range: 40, speed: 0,
     element: null, onHit: [], tags: ['stationary'],
     traits: [
@@ -491,7 +499,7 @@ window.UNITS = [
   },
   {
     id: 'zass', name: '札斯', title: '赤巾浪人', tier: 'T2', sheet: 'martial_hero', role: '刺客',
-    cost: 160, supply: 2, cooldown: 8, count: 1,
+    cost: 160, supply: 2, count: 1,
     hp: 460, armor: 'light', atk: 50, aspd: 1.0, dmg: 'slash', range: 30, speed: 60,
     element: null, onHit: [], tags: [],
     traits: [{ name: '见切', desc: '30% 几率闪避穿刺伤害。' }],
@@ -506,7 +514,7 @@ window.UNITS = [
   // ======================= T1 · 战术核心 =======================
   {
     id: 'seren', name: '赛伦', title: '焰之术士', tier: 'T1', sheet: 'evil_wizard', role: '范围法师',
-    cost: 230, supply: 2, cooldown: 10, count: 1,
+    cost: 230, supply: 2, count: 1,
     hp: 300, armor: 'none', atk: 24, aspd: 0.7, dmg: 'magic', range: 210, speed: 38, splash: 40,
     element: 'fire', onHit: [{ status: 'burn', stacks: 1 }], tags: [],
     traits: [],
@@ -519,7 +527,7 @@ window.UNITS = [
   },
   {
     id: 'lein', name: '莱恩', title: '圣骑士', tier: 'T1', sheet: 'hero_knight', role: '突进前排',
-    cost: 250, supply: 2, cooldown: 10, count: 1,
+    cost: 250, supply: 2, count: 1,
     hp: 900, armor: 'heavy', atk: 40, aspd: 0.9, dmg: 'slash', range: 36, speed: 40,
     element: 'holy', onHit: [], tags: [],
     traits: [
@@ -535,7 +543,7 @@ window.UNITS = [
   },
   {
     id: 'worm', name: '熔岩蠕虫', title: '地底来客', tier: 'T1', sheet: 'fire_worm', role: '钻地远程',
-    cost: 230, supply: 2, cooldown: 10, count: 1,
+    cost: 230, supply: 2, count: 1,
     hp: 560, armor: 'light', atk: 28, aspd: 0.8, dmg: 'magic', range: 170, speed: 44,
     element: 'fire', onHit: [{ status: 'burn', stacks: 1 }], tags: [], projectile: 'fireball',
     traits: [
@@ -551,7 +559,7 @@ window.UNITS = [
   },
   {
     id: 'xuan', name: '玄', title: '武僧', tier: 'T1', sheet: 'martial_hero_3', role: '打断/控制',
-    cost: 200, supply: 2, cooldown: 9, count: 1,
+    cost: 200, supply: 2, count: 1,
     hp: 700, armor: 'light', atk: 34, aspd: 1.3, dmg: 'slash', range: 26, speed: 50,
     element: null, onHit: [], tags: [],
     traits: [{ name: '化劲', desc: '每受到 4 次攻击，第 4 次完全格挡。' }],
@@ -566,7 +574,7 @@ window.UNITS = [
   // ======================= T0.5 · 改变战局的兵种 =======================
   {
     id: 'mordred', name: '摩尔德', title: '亡灵君主', tier: 'T0.5', sheet: 'evil_wizard_2', role: '召唤/诅咒',
-    cost: 320, supply: 3, cooldown: 14, count: 1,
+    cost: 320, supply: 3, count: 1,
     hp: 480, armor: 'none', atk: 45, aspd: 0.8, dmg: 'magic', range: 230, speed: 34,
     element: 'shadow', onHit: [{ status: 'vulnerable' }], tags: [],
     traits: [{ name: '暗蚀', desc: '攻击给目标施加【易伤】诅咒：受到的伤害 +20%，持续 5 秒。' }],
@@ -579,7 +587,7 @@ window.UNITS = [
   },
   {
     id: 'olin', name: '奥林', title: '霜语大法师', tier: 'T0.5', sheet: 'wizard_pack', role: '控场法师',
-    cost: 300, supply: 3, cooldown: 14, count: 1,
+    cost: 300, supply: 3, count: 1,
     hp: 420, armor: 'none', atk: 34, aspd: 0.8, dmg: 'magic', range: 240, speed: 36,
     element: 'frost', onHit: [{ status: 'chill', stacks: 1 }], tags: [],
     traits: [],
@@ -592,7 +600,7 @@ window.UNITS = [
   },
   {
     id: 'yaksha', name: '夜叉', title: '鬼面剑豪', tier: 'T0.5', sheet: 'martial_hero_2', role: '蓄力爆发',
-    cost: 300, supply: 3, cooldown: 12, count: 1,
+    cost: 300, supply: 3, count: 1,
     hp: 600, armor: 'light', atk: 48, aspd: 0.8, dmg: 'slash', range: 36, speed: 45,
     element: 'shadow', onHit: [{ status: 'weaken' }], tags: [],
     traits: [{ name: '鬼面', desc: '攻击给目标施加【衰弱】诅咒：造成的伤害 -30%，持续 5 秒。' }],
@@ -607,7 +615,7 @@ window.UNITS = [
   // ======================= T0 · 王牌 =======================
   {
     id: 'rex', name: '雷克斯', title: '征服王', tier: 'T0', sheet: 'king_1', role: '光环/祝福',
-    cost: 480, supply: 4, cooldown: 20, count: 1,
+    cost: 480, supply: 4, count: 1,
     hp: 1300, armor: 'heavy', atk: 60, aspd: 0.7, dmg: 'slash', range: 46, speed: 32, splash: 50,
     element: 'holy', onHit: [], tags: ['giant'],
     traits: [
@@ -623,7 +631,7 @@ window.UNITS = [
   },
   {
     id: 'titan', name: '格罗姆', title: '碎城巨人', tier: 'T0', sheet: 'warrior_1', role: '直取水晶',
-    cost: 420, supply: 4, cooldown: 20, count: 1,
+    cost: 420, supply: 4, count: 1,
     hp: 2200, armor: 'heavy', atk: 90, aspd: 0.5, dmg: 'siege', range: 40, speed: 26,
     element: null, onHit: [], tags: ['giant'],
     traits: [
@@ -645,7 +653,7 @@ window.SPECIAL_UNITS = [
   {
     id: 'satan', name: '撒旦', title: '深渊魔王', tier: 'EX', sheet: 'satan', role: '魔王',
     playerOnly: true, cheatSend: true, scale: 1.2, ccImmune: true,   // 没有数量上限；电脑不能自己买，只能作弊派送
-    cost: 666, supply: 5, cooldown: 45, count: 1,
+    cost: 666, supply: 5, count: 1,
     hp: 20000, armor: 'heavy', atk: 260, aspd: 0.8, dmg: 'magic', range: 80, speed: 42, splash: 130,
     element: 'fire', onHit: [{ status: 'burn', stacks: 3 }, { status: 'weaken' }], tags: ['giant'],
     traits: [
@@ -673,7 +681,7 @@ window.SPECIAL_UNITS = [
     playerOnly: true, cardClass: 'frost', scale: 1.5, shadowR: 110, cull: 700,
     ccImmune: true, statusImmune: { burn: 1, poison: 1 }, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true, hunter: true,
     taunt: 2400,       // 嘲讽半径：这个范围里的敌军只打冰龙
-    cost: 500000, supply: 0, cooldown: 1, count: 1,
+    cost: 500000, supply: 0, count: 1,
     hp: 20000000, armor: 'heavy', atk: 260000, aspd: 0.5, dmg: 'magic', range: 420, speed: 110, splash: 260,
     element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant'],
     traits: [
@@ -2909,12 +2917,14 @@ window.HD_SHEETS = {
         radius: R.map.crystalRadius, hp: R.map.crystalHp, maxHp: R.map.crystalHp, cd: 0, st: {},
       }));
       this.sides = [0, 1].map(() => ({
-        gold: R.economy.startGold, supplyUsed: 0, cdLeft: {}, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0], dragonCd: [0, 0, 0],
+        gold: R.economy.startGold, supplyUsed: 0, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0], dragonCd: [0, 0, 0],
+        pick: null,       // 最后一次选中的兵种：统一派兵时出它
       }));
+      this.waveN = 0;     // 已经过了几次统一派兵
       this.dragonCrystal = true;   // 冰龙能不能打水晶（界面上的开关，关掉以后冰龙的任何伤害都打不到水晶）
       // 作弊开关：只由界面的作弊菜单修改，默认全关，不影响正常对局和无头测试
       this.cheats = {
-        infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
+        infiniteGold: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
         incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
       };
       this.units = [];
@@ -3172,7 +3182,6 @@ window.HD_SHEETS = {
       if (this.ended) return 'ended';
       if (d.playerOnly && side !== 0 && !(cheat && d.cheatSend)) return 'no';
       const ch = side === 0 ? this.cheats : null;
-      if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
       if (S.supplyUsed + d.supply > this.supplyCap() && !(ch && ch.noSupply)) return 'supply';
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
@@ -3184,7 +3193,7 @@ window.HD_SHEETS = {
       const S = this.sides[side];
       S.gold -= d.cost;
       S.supplyUsed += d.supply;
-      S.cdLeft[uid] = d.cooldown;
+      if (!cheat) S.pick = uid;     // 自己买的才算“选中”，作弊派送的不算
       S.spawned[uid] = (S.spawned[uid] || 0) + d.count;
       const group = { supply: d.supply, members: d.count };   // 一次出几个，人口只算一次
       const fp = this.formationPoint(side);
@@ -3201,7 +3210,25 @@ window.HD_SHEETS = {
       this.emit({ t: 'spawn', side, uid });
       return true;
     }
-    // 批量出兵（作弊）：不扣金币、人口、冷却，一次出 n 个单独的单位（不是“组”）。
+    // 选中一个兵种（不出兵）：点了卡片但钱不够时界面会调它，到统一派兵时就出这个
+    setPick(side, uid) {
+      if (C.BY_ID[uid]) this.sides[side].pick = uid;
+    }
+    // 离下一次统一派兵还有几秒
+    waveLeft() {
+      const W = R.economy.waveEvery;
+      return W - (this.time % W);
+    }
+    // 统一派兵：把这一方的金币一直换成最后选中的兵种，换到买不起（或者人口满了、到数量上限）为止。返回出了几组
+    dispatch(side) {
+      const uid = this.sides[side].pick;
+      if (!uid) return 0;
+      let n = 0;
+      while (n < R.economy.waveMax && this.spawn(side, uid)) n++;
+      if (n) this.emit({ t: 'wave', side, uid, n });
+      return n;
+    }
+    // 批量出兵（作弊）：不扣金币、人口，一次出 n 个单独的单位（不是“组”）。
     // 每方批量兵合计（含已经在场的，所有兵种加起来）不超过 BATCH_MAX：直接上场的个数 = 上限减去场上已有的，
     // 超出的进待命队列（见 enterQueues），场上少了再陆续进场，不会一次算几十万个单位卡死。
     // 纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
@@ -3701,10 +3728,17 @@ window.HD_SHEETS = {
         const mimics = this.has[s].mimic || 0;
         S.gold += (this.baseIncome(s) + 3 * mimics) * this.cheats.incomeMul[s] * dt;
         if (s === 0 && this.cheats.infiniteGold) S.gold = Math.max(S.gold, 999999);
-        for (const k of Object.keys(S.cdLeft)) S.cdLeft[k] = Math.max(0, S.cdLeft[k] - dt);
         // “撒旦技能无冷却”只给我方：电脑的撒旦是自动放技能的，没有冷却就停不下来了
         for (let i = 0; i < 3; i++) S.manualCd[i] = s === 0 && this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
         for (let i = 0; i < 3; i++) S.dragonCd[i] = this.cheats.dragonNoCd ? 0 : Math.max(0, S.dragonCd[i] - dt);
+      }
+
+      // 统一派兵：每过 waveEvery 秒双方各来一次（“电脑停止出兵”开着时电脑不派）
+      const wave = Math.floor(this.time / R.economy.waveEvery);
+      if (wave > this.waveN) {
+        this.waveN = wave;
+        this.dispatch(0);
+        if (!this.cheats.aiOff) this.dispatch(1);
       }
 
       if (this.queues.length) this.enterQueues();
@@ -3929,7 +3963,7 @@ window.HD_SHEETS = {
         eng.spawn(this.side, this.goal);
         this.goal = null;
       } else if (why !== 'gold') {
-        this.goal = null;   // 冷却、人口、上限：换一个目标
+        this.goal = null;   // 人口、上限：换一个目标
       }
     }
 
@@ -3999,7 +4033,7 @@ window.HD_SHEETS = {
         return { def, s };
       }).sort((a, b) => b.s - a.s);
       // 设计规则：单一兵种占双方总出兵的比例不超过 25%（总出兵 40 个以上才生效），超过的不参与选兵
-      // 没有这条规则，灰鼠群（一次 4 只、冷却短）会占掉 30% 以上的出兵，见 docs/QUESTIONS.md
+      // 没有这条规则，灰鼠群（一次 4 只、便宜）会占掉 30% 以上的出兵，见 docs/QUESTIONS.md
       const share = (id) => (totalUnits >= 40 ? (S.spawned[id] || 0) / totalUnits : 0);
       const allowed = scored.filter((x) => share(x.def.id) <= 0.25);
       if (allowed.length) scored = allowed;
@@ -4022,7 +4056,7 @@ window.HD_SHEETS = {
       if (!danger && why === 'supply' && top.supply <= cap * 0.4) return;
       // 退而求其次只在分数接近第一名的兵种里挑；差太多就攒钱。
       // 告急时放宽到 2 分，但不再“什么便宜买什么”——以前守家时会刷出几百只灰鼠群
-      // 富余时（金币够买 3 个第一名）不卡分数下限：第一名在冷却中，就买能买的最高分兵种，不让金币堆着
+      // 富余时（金币够买 3 个第一名）不卡分数下限：第一名出不了（人口、上限），就买能买的最高分兵种，不让金币堆着
       // （收入随时间涨之后，只按分数挑会攒到几万金币，见 docs/QUESTIONS.md 第 43 条）
       const rich = S.gold >= 3 * top.cost;
       const floor = rich ? -Infinity : order[0].s - (danger ? 2.0 : 1.0);
@@ -5301,7 +5335,7 @@ window.HD_SHEETS = {
   const ARMOR = { none: '无甲', light: '轻甲', heavy: '重甲' };
   const ELEM = { fire: '火', frost: '冰', poison: '毒', shadow: '暗', holy: '圣' };
   const REASON = {
-    gold: '金币不够', supply: '人口已满', cooldown: '冷却中', max: '场上数量已达上限', ended: '对局已结束', no: '没有这个兵种',
+    gold: '金币不够', supply: '人口已满', max: '场上数量已达上限', ended: '对局已结束', no: '没有这个兵种',
   };
   const PAN_SPEED = 900;        // 键盘平移：屏幕像素每秒
   const ZOOM_RATE = 1.2;        // 按住缩放键时，每秒的对数缩放量
@@ -5350,12 +5384,20 @@ window.HD_SHEETS = {
     panKeys: new Set(),
     zoomKeys: new Set(),
     batch: null,        // 批量出兵模式：{ side, count, pendingUid, pendingT }，由作弊菜单打开
+    mult: 1,            // 点一下卡片出几组：1 或 10（出兵栏最左边的 ×10 开关，G 键）
   };
 
   // ---------- 出兵栏 ----------
   function buildRoster() {
     const roster = $('roster');
     roster.innerHTML = '';
+    // ×10 开关：固定在出兵栏最左边，横着划兵种时它不动
+    const mult = el('button', 'card mult');
+    mult.id = 'btn-mult';
+    mult.title = '开着的时候点一下兵种出 10 组（G）';
+    mult.innerHTML = '<b>×10</b><span>连出</span>';
+    mult.addEventListener('click', toggleMult);
+    roster.appendChild(mult);
     ALL.forEach((d, i) => {
       const card = el('div', d.cardClass ? `card ${d.cardClass}` : d.playerOnly ? 'card evil' : 'card');
       card.dataset.uid = d.id;
@@ -5371,10 +5413,8 @@ window.HD_SHEETS = {
       const cost = el('div', 'cost');
       cost.innerHTML = `<i class="coin"></i><b>${fmtBig(d.cost)}</b><span>人口${d.supply}</span>`;
       card.appendChild(cost);
-      const cd = el('div', 'cd');
-      card.appendChild(cd);
       roster.appendChild(card);
-      state.cards.set(d.id, { card, av, cd, cost, def: d, drawn: false });
+      state.cards.set(d.id, { card, av, cost, def: d, drawn: false });
 
       card.addEventListener('pointerdown', (e) => onCardDown(e, d.id));
       card.addEventListener('pointermove', onCardMove);
@@ -5426,26 +5466,32 @@ window.HD_SHEETS = {
     hideTip();
   }
 
-  // 点兵种（卡片或数字键）：平时出一个；批量出兵模式下是批量出兵
+  // 点兵种（卡片或数字键）：平时出一组，×10 开着出 10 组；批量出兵模式下是批量出兵
   function pick(uid) {
     if (state.batch) batchPick(uid);
     else spawn(uid);
   }
 
-  // 出兵：成功闪绿，失败提示原因并闪红
+  // 出兵：成功闪绿，失败提示原因并闪红。点了就算“选中”，钱不够也算：到统一派兵的时候出的就是它
   function spawn(uid) {
     const eng = state.eng;
     const c = state.cards.get(uid);
     if (!eng || !c) return;
     if (state.paused || !state.running) return;
-    const why = eng.canSpawn(0, uid);
-    if (why === 'ok') {
-      eng.spawn(0, uid);
+    eng.setPick(0, uid);
+    let n = 0;
+    while (n < state.mult && eng.spawn(0, uid)) n++;
+    if (n) {
       flash(c.card, 'flash');
+      if (n < state.mult) toast(`只出了 ${n} 组：${REASON[eng.canSpawn(0, uid)] || '出不了更多'}`);
     } else {
       flash(c.card, 'bad');
-      toast(REASON[why] || '现在不能出兵');
+      toast(`${REASON[eng.canSpawn(0, uid)] || '现在不能出兵'}（已选中，统一派兵时出）`);
     }
+  }
+  function toggleMult() {
+    state.mult = state.mult === 1 ? 10 : 1;
+    $('btn-mult').classList.toggle('on', state.mult > 1);
   }
   function flash(card, cls) {
     card.classList.remove('flash', 'bad');
@@ -5455,7 +5501,7 @@ window.HD_SHEETS = {
   }
 
   // ---------- 批量出兵（作弊菜单打开，见 cheat-ui.js） ----------
-  // 进入后顶部出现提示条，点下方兵种就按设定的数量批量出兵，不扣金币、人口和冷却。
+  // 进入后顶部出现提示条，点下方兵种就按设定的数量批量出兵，不扣金币和人口。
   // 数量 ≥ 1000 时要连点两次同一个兵种确认，防止误触出一大片。按 Esc 或提示条上的“取消”退出
   function armBatch(side, count) {
     const eng = state.eng;
@@ -5533,7 +5579,7 @@ window.HD_SHEETS = {
     const elem = d.element ? ELEM[d.element] : '无';
     return `
       <h3>${d.name} <small>${d.title} · ${d.tier}</small></h3>
-      <div class="meta">${d.role} · 💰${fmtBig(d.cost)} · 人口${d.supply} · 冷却${d.cooldown} 秒${d.count > 1 ? ` · 一次 ${d.count} 只` : ''}</div>
+      <div class="meta">${d.role} · 💰${fmtBig(d.cost)} · 人口${d.supply}${d.count > 1 ? ` · 一次 ${d.count} 只` : ''}</div>
       <div class="meta">${DMG[d.dmg]} → ${ARMOR[d.armor]} · 元素：${elem} · 射程 ${d.range} · 移速 ${d.speed} · 生命 ${fmtBig(d.hp)}</div>
       ${traits}
       ${skill}
@@ -5586,16 +5632,19 @@ window.HD_SHEETS = {
   function updateRoster() {
     const eng = state.eng;
     const S = eng ? eng.sides[0] : null;
-    const batch = !!state.batch;    // 批量出兵不看金币、人口和冷却，卡片全亮、不画冷却遮罩
+    const batch = !!state.batch;    // 批量出兵不看金币和人口，卡片全亮
     for (const c of state.cards.values()) {
       const d = c.def;
-      // 作弊“出兵无冷却”开着时不画冷却遮罩（canSpawn 也忽略冷却，按钮是亮的）
-      const left = batch || !S || eng.cheats.noCd ? 0 : S.cdLeft[d.id] || 0;
-      c.cd.style.height = `${Math.round((left / d.cooldown) * 100)}%`;
       const ok = batch ? true : eng ? eng.canSpawn(0, d.id) === 'ok' : false;
       if (c.ok !== ok) {
         c.ok = ok;
         c.card.classList.toggle('no', !ok);
+      }
+      // 选中的兵种（统一派兵时出它）描一圈边
+      const picked = !!S && S.pick === d.id;
+      if (c.picked !== picked) {
+        c.picked = picked;
+        c.card.classList.toggle('picked', picked);
       }
     }
   }
@@ -5621,6 +5670,9 @@ window.HD_SHEETS = {
     $('pop-fill').style.width = `${Math.round(popFrac * 100)}%`;
     $('pop-fill').classList.toggle('warn', popFrac > 0.9);
     setText('clock', fmtTime(eng.time));
+    // 统一派兵倒计时 + 到时候出什么
+    const pd = S.pick ? ALL.find((d) => d.id === S.pick) : null;
+    setText('wave', `派兵 ${Math.ceil(eng.waveLeft())}s · ${pd ? pd.name : '未选'}`);
     const alive = eng.stat ? eng.stat.alive : [0, 0];
     const wait = [eng.queued(0), eng.queued(1)];
     setText('alive-me', `在场 ${alive[0]}${wait[0] ? ` · 待命 ${fmtCount(wait[0])}` : ''}`);
@@ -5748,6 +5800,7 @@ window.HD_SHEETS = {
       if (e.code === 'Space') { e.preventDefault(); togglePause(); return; }
       if (low === 'z') { toggleSpeed(); return; }
       const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      if (k === 'G') { toggleMult(); return; }
       const i = KEYS.indexOf(k);
       if (i >= 0 && i < ALL.length) { pick(ALL[i].id); return; }
       if (window.GameUI.onKey) window.GameUI.onKey(k, e);
@@ -5852,6 +5905,11 @@ window.HD_SHEETS = {
       const events = eng.drainEvents();
       rv.ingest(events);
       if (events.some((e) => e.t === 'end')) state.endAt = now + 1600;
+      for (const ev of events) {
+        if (ev.t !== 'wave' || ev.side !== 0) continue;
+        const d = ALL.find((x) => x.id === ev.uid);
+        toast(`统一派兵：${d.name} ×${ev.n * d.count}`);
+      }
       rv.draw(eng, dt);
       if (state.running && !state.paused) rv.adapt(dt, performance.now() - c0);
       updateHud();
@@ -5915,7 +5973,7 @@ window.HD_SHEETS = {
 
   // 跨局保留的作弊设置
   const cfg = {
-    infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
+    infiniteGold: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
     incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
     crystalMax: [R.map.crystalHp, R.map.crystalHp],
     dragonCrystal: true,                 // 冰龙能不能打水晶（画面右侧的开关，不算作弊，但一样跨局保留）
@@ -5928,7 +5986,7 @@ window.HD_SHEETS = {
   function pushCheats(e) {
     if (!e) return;
     const c = e.cheats;
-    for (const k of ['infiniteGold', 'noCd', 'noSupply', 'aiOff', 'satanNoCd', 'dragonNoCd']) c[k] = cfg[k];
+    for (const k of ['infiniteGold', 'noSupply', 'aiOff', 'satanNoCd', 'dragonNoCd']) c[k] = cfg[k];
     for (const k of ['incomeMul', 'dmgMul', 'invuln', 'godMode']) c[k] = cfg[k].slice();
     e.dragonCrystal = cfg.dragonCrystal;
   }
@@ -5941,7 +5999,7 @@ window.HD_SHEETS = {
       { label: '我方收入', choice: ['incomeMul', 0, [1, 5, 20, 100]] },
     ] },
     { title: '出兵', rows: [
-      { label: '', toggles: [['出兵无冷却', 'noCd'], ['无限人口', 'noSupply']] },
+      { label: '', toggles: [['无限人口', 'noSupply']] },
       { label: '撒旦', buttons: [['免费召唤撒旦', () => summonSatan(0)], ['派送撒旦给电脑', () => summonSatan(1)]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
       { label: '冰龙', buttons: [['免费召唤冰龙', summonDragon]], toggles: [['冰龙技能无冷却', 'dragonNoCd']] },
     ] },
@@ -6042,7 +6100,7 @@ window.HD_SHEETS = {
     fs.appendChild(r3);
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
+    hint.textContent = '不扣金币和人口，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
       '（所有兵种合计），超出的进待命队列，场上少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
     fs.appendChild(hint);
     box.appendChild(fs);
@@ -6106,9 +6164,8 @@ window.HD_SHEETS = {
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
     const S = e.sides[side];
-    const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
+    const saved = { gold: S.gold, supply: S.supplyUsed };
     S.gold += SATAN.cost;
-    S.cdLeft.satan = 0;
     S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
     const why = e.canSpawn(side, 'satan', true);
     if (why === 'ok') {
@@ -6118,7 +6175,6 @@ window.HD_SHEETS = {
       G.toast(side === 0 ? '撒旦降临' : '撒旦降临电脑阵营');
     } else {
       S.gold = saved.gold;
-      S.cdLeft.satan = saved.cd;
       S.supplyUsed = saved.supply;
       G.toast('现在不能召唤');
     }
@@ -6129,17 +6185,12 @@ window.HD_SHEETS = {
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
     const S = e.sides[0];
-    const saved = { gold: S.gold, cd: S.cdLeft.frostwing };
+    const saved = { gold: S.gold, pick: S.pick };
     S.gold += DRAGON.cost;
-    S.cdLeft.frostwing = 0;
-    if (e.spawn(0, 'frostwing')) {
-      S.gold = saved.gold;
-      G.toast('冰龙降临');
-    } else {
-      S.gold = saved.gold;
-      S.cdLeft.frostwing = saved.cd;
-      G.toast('现在不能召唤');
-    }
+    const ok = e.spawn(0, 'frostwing');
+    S.gold = saved.gold;
+    S.pick = saved.pick;        // 免费召唤不算“选中”，统一派兵还是出原来选的
+    G.toast(ok ? '冰龙降临' : '现在不能召唤');
   }
 
   function toggle() {

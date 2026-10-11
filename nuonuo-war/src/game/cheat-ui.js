@@ -10,7 +10,7 @@
 
   // 跨局保留的作弊设置
   const cfg = {
-    infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
+    infiniteGold: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
     incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
     crystalMax: [R.map.crystalHp, R.map.crystalHp],
     dragonCrystal: true,                 // 冰龙能不能打水晶（画面右侧的开关，不算作弊，但一样跨局保留）
@@ -23,7 +23,7 @@
   function pushCheats(e) {
     if (!e) return;
     const c = e.cheats;
-    for (const k of ['infiniteGold', 'noCd', 'noSupply', 'aiOff', 'satanNoCd', 'dragonNoCd']) c[k] = cfg[k];
+    for (const k of ['infiniteGold', 'noSupply', 'aiOff', 'satanNoCd', 'dragonNoCd']) c[k] = cfg[k];
     for (const k of ['incomeMul', 'dmgMul', 'invuln', 'godMode']) c[k] = cfg[k].slice();
     e.dragonCrystal = cfg.dragonCrystal;
   }
@@ -36,7 +36,7 @@
       { label: '我方收入', choice: ['incomeMul', 0, [1, 5, 20, 100]] },
     ] },
     { title: '出兵', rows: [
-      { label: '', toggles: [['出兵无冷却', 'noCd'], ['无限人口', 'noSupply']] },
+      { label: '', toggles: [['无限人口', 'noSupply']] },
       { label: '撒旦', buttons: [['免费召唤撒旦', () => summonSatan(0)], ['派送撒旦给电脑', () => summonSatan(1)]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
       { label: '冰龙', buttons: [['免费召唤冰龙', summonDragon]], toggles: [['冰龙技能无冷却', 'dragonNoCd']] },
     ] },
@@ -137,7 +137,7 @@
     fs.appendChild(r3);
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
+    hint.textContent = '不扣金币和人口，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
       '（所有兵种合计），超出的进待命队列，场上少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
     fs.appendChild(hint);
     box.appendChild(fs);
@@ -201,9 +201,8 @@
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
     const S = e.sides[side];
-    const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
+    const saved = { gold: S.gold, supply: S.supplyUsed };
     S.gold += SATAN.cost;
-    S.cdLeft.satan = 0;
     S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
     const why = e.canSpawn(side, 'satan', true);
     if (why === 'ok') {
@@ -213,7 +212,6 @@
       G.toast(side === 0 ? '撒旦降临' : '撒旦降临电脑阵营');
     } else {
       S.gold = saved.gold;
-      S.cdLeft.satan = saved.cd;
       S.supplyUsed = saved.supply;
       G.toast('现在不能召唤');
     }
@@ -224,17 +222,12 @@
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
     const S = e.sides[0];
-    const saved = { gold: S.gold, cd: S.cdLeft.frostwing };
+    const saved = { gold: S.gold, pick: S.pick };
     S.gold += DRAGON.cost;
-    S.cdLeft.frostwing = 0;
-    if (e.spawn(0, 'frostwing')) {
-      S.gold = saved.gold;
-      G.toast('冰龙降临');
-    } else {
-      S.gold = saved.gold;
-      S.cdLeft.frostwing = saved.cd;
-      G.toast('现在不能召唤');
-    }
+    const ok = e.spawn(0, 'frostwing');
+    S.gold = saved.gold;
+    S.pick = saved.pick;        // 免费召唤不算“选中”，统一派兵还是出原来选的
+    G.toast(ok ? '冰龙降临' : '现在不能召唤');
   }
 
   function toggle() {

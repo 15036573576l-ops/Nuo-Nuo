@@ -178,7 +178,8 @@ console.log('机制断言');
   eng.sides[0].gold = 10000;
   const ok1 = eng.spawn(0, 'titan');
   const again = eng.canSpawn(0, 'titan');
-  check('出兵冷却生效', ok1 && again === 'cooldown', again);
+  check('出兵没有冷却：刚出完同一个兵种马上还能出', ok1 && again === 'ok' && eng.spawn(0, 'titan') === true, again);
+  check('兵种数据里不再有冷却', W.UNITS.concat(W.SPECIAL_UNITS).every((d) => d.cooldown === undefined) && eng.sides[0].cdLeft === undefined);
 }
 {
   // 武僧眩晕打断夜叉的蓄力；被打断的夜叉进入半冷却
@@ -384,7 +385,7 @@ console.log('机制断言');
   // 作弊默认全部关闭；水晶血量可以设（作弊菜单用）
   const eng = new Engine({ seed: 49 });
   const ch = eng.cheats;
-  const off = ch.infiniteGold === false && ch.noCd === false && ch.noSupply === false &&
+  const off = ch.infiniteGold === false && ch.noCd === undefined && ch.noSupply === false &&
     ch.aiOff === false && ch.satanNoCd === false && ch.dragonNoCd === false &&
     ch.incomeMul.every((v) => v === 1) && ch.dmgMul.every((v) => v === 1) &&
     ch.invuln.every((v) => v === false) && ch.godMode.every((v) => v === false);
@@ -427,7 +428,7 @@ console.log('机制断言');
   const gold0 = eng.sides[0].gold;
   const n = eng.massSpawn(0, 'rat', 500);
   check('批量出兵 500 个单位（单独的个体，不是组）', n === 500 && eng.count(0, 'rat') === 500, `n=${n} count=${eng.count(0, 'rat')}`);
-  check('批量出兵不扣金币、人口、冷却', eng.sides[0].gold === gold0 && eng.sides[0].supplyUsed === 0 && !eng.sides[0].cdLeft.rat);
+  check('批量出兵不扣金币、人口，也不算“选中”', eng.sides[0].gold === gold0 && eng.sides[0].supplyUsed === 0 && eng.sides[0].pick === null);
   const ys = eng.units.map((u) => u.y);
   const span = Math.max(...ys) - Math.min(...ys);
   check('批量出兵纵向铺满出兵带（500 个，纵向跨度 ≥ 2000 px）', span >= 2000, span.toFixed(0));
@@ -584,12 +585,10 @@ console.log('\n撒旦手动技能（J / K / L）');
   const eng = new Engine({ seed: 83 });
   eng.sides[0].gold = 1e6; eng.sides[1].gold = 1e6;
   let n = 0;
-  for (let i = 0; i < 4; i++) { eng.sides[0].cdLeft.satan = 0; if (eng.spawn(0, 'satan')) n++; }
+  for (let i = 0; i < 4; i++) { if (eng.spawn(0, 'satan')) n++; }
   check('我方自己买撒旦：没有上场数量限制（连买 4 个都成功）', n === 4 && eng.count(0, 'satan') === 4, `n=${n}`);
-  eng.sides[1].cdLeft.satan = 0;
   check('电脑自己买不了撒旦（不作弊）', eng.canSpawn(1, 'satan') === 'no' && eng.spawn(1, 'satan') === false && eng.count(1, 'satan') === 0);
   check('作弊派送撒旦给电脑可以（cheat=true）', eng.canSpawn(1, 'satan', true) === 'ok' && eng.spawn(1, 'satan', true) === true && eng.count(1, 'satan') === 1);
-  eng.sides[1].cdLeft.satan = 0;
   check('派送给电脑也没有数量上限', eng.spawn(1, 'satan', true) === true && eng.count(1, 'satan') === 2);
   check('作弊也不能派送冰龙给电脑（冰龙不是 cheatSend）', eng.canSpawn(1, 'frostwing', true) === 'no');
   const got = manualCast(eng, 0, 0);
@@ -792,6 +791,55 @@ console.log('\n冰龙（V 召唤，B / N / M 技能，H 开关打水晶）');
   C.dragonCast(eng, 0, 2);
   step(eng, 20);
   check('满数值的暴风雪 1 个 tick 清场', eng.stat.alive[1] === 0, `alive=${eng.stat.alive[1]}`);
+}
+
+// 统一派兵：每 60 秒双方各自把金币全换成最后选中的兵种
+console.log('\n统一派兵（每 60 秒）');
+{
+  const W60 = R.economy.waveEvery / DT;
+  const eng = new Engine({ seed: 96 });
+  step(eng, W60 + 2);
+  check('没选过兵种：到点什么都不出，金币照常攒着', eng.units.length === 0 && eng.sides[0].gold > R.economy.startGold && eng.waveN === 1);
+  // 自己出过一次就算选中；钱不够时用 setPick 只选不出
+  const e2 = new Engine({ seed: 97 });
+  e2.spawn(0, 'rat');
+  check('自己出兵就算选中', e2.sides[0].pick === 'rat');
+  e2.setPick(0, 'brown');
+  e2.spawn(1, 'skeleton');
+  check('setPick 只选不出兵、不花钱', e2.sides[0].pick === 'brown' && e2.count(0, 'brown') === 0);
+  e2.spawn(1, 'satan', true);
+  check('作弊派送不算选中', e2.sides[1].pick === 'skeleton');
+  check('倒计时从 60 秒往下走', Math.abs(e2.waveLeft() - 60) < 1e-6);
+  step(e2, W60 - 3);
+  const before = [e2.sides[0].gold, e2.sides[1].gold];
+  const had = [e2.sides[0].spawned.brown || 0, e2.sides[1].spawned.skeleton || 0];
+  check('到点之前不会自动出', had[0] === 0 && before[0] > 800, `gold=${before[0].toFixed(0)}`);
+  step(e2, 6);
+  const brown = def('brown'), sk = def('skeleton');
+  const got = [(e2.sides[0].spawned.brown || 0) - had[0], (e2.sides[1].spawned.skeleton || 0) - had[1]];
+  check('到点：双方把金币一直换成选中的兵种，剩下的不够再买一个',
+    got[0] >= Math.floor(before[0] / brown.cost) && e2.sides[0].gold < brown.cost + 30 &&
+    got[1] >= Math.floor(before[1] / sk.cost) && e2.sides[1].gold < sk.cost + 30 && e2.waveN === 1,
+    `brown ${got[0]} 剩 ${e2.sides[0].gold.toFixed(0)}；skeleton ${got[1]} 剩 ${e2.sides[1].gold.toFixed(0)}`);
+  check('统一派兵后还能随时自己出兵', (e2.sides[0].gold = 500, e2.spawn(0, 'rat')) === true);
+  // 人口满了就停，不硬塞
+  const e3 = new Engine({ seed: 98 });
+  e3.sides[0].gold = 1e6;
+  e3.setPick(0, 'rat');
+  const n3 = e3.dispatch(0);
+  check('统一派兵受人口上限限制（开局 40 人口，灰鼠群 1 人口一组）', n3 === e3.supplyCap() && e3.sides[0].supplyUsed === e3.supplyCap() && e3.canSpawn(0, 'rat') === 'supply', `n=${n3}`);
+  // “电脑停止出兵”开着：电脑到点不派
+  const e4 = new Engine({ seed: 99 });
+  e4.cheats.aiOff = true;
+  e4.setPick(1, 'rat'); e4.setPick(0, 'rat');
+  step(e4, W60 + 2);
+  check('“电脑停止出兵”开着时电脑不参加统一派兵，我方照常', e4.count(1, 'rat') === 0 && e4.count(0, 'rat') > 0);
+  // 开着无限金币、无限人口：一次最多 waveMax 组
+  const e5 = new Engine({ seed: 100 });
+  e5.cheats.noSupply = true;
+  e5.sides[0].gold = 1e9;
+  e5.setPick(0, 'skeleton');
+  check('一次统一派兵最多 500 组', e5.dispatch(0) === R.economy.waveMax);
 }
 
 // 冰龙：扭头、拍击、嘲讽；电脑的撒旦自动放技能

@@ -4,7 +4,7 @@ window.SPECIAL_UNITS = [
   {
     id: 'satan', name: '撒旦', title: '深渊魔王', tier: 'EX', sheet: 'satan', role: '魔王',
     playerOnly: true, cheatSend: true, scale: 1.2, ccImmune: true,   // 没有数量上限；电脑不能自己买，只能作弊派送
-    cost: 666, supply: 5, cooldown: 45, count: 1,
+    cost: 666, supply: 5, count: 1,
     hp: 20000, armor: 'heavy', atk: 260, aspd: 0.8, dmg: 'magic', range: 80, speed: 42, splash: 130,
     element: 'fire', onHit: [{ status: 'burn', stacks: 3 }, { status: 'weaken' }], tags: ['giant'],
     traits: [
@@ -32,7 +32,7 @@ window.SPECIAL_UNITS = [
     playerOnly: true, cardClass: 'frost', scale: 1.5, shadowR: 110, cull: 700,
     ccImmune: true, statusImmune: { burn: 1, poison: 1 }, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true, hunter: true,
     taunt: 2400,       // 嘲讽半径：这个范围里的敌军只打冰龙
-    cost: 500000, supply: 0, cooldown: 1, count: 1,
+    cost: 500000, supply: 0, count: 1,
     hp: 20000000, armor: 'heavy', atk: 260000, aspd: 0.5, dmg: 'magic', range: 420, speed: 110, splash: 260,
     element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant'],
     traits: [
