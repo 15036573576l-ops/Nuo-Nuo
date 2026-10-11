@@ -5,155 +5,192 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>糯糯战记</title>
 <style>
+  /* 配色：浅色毛玻璃，底下是草地。蓝 = 我方，珊瑚 = 电脑，金 = 金币 */
   :root {
-    --bg: #0d1224;
-    --panel: #171d33;
-    --panel-2: #222a47;
-    --line: #34405f;
-    --text: #eef2ff;
-    --muted: #9aa5c4;
-    --gold: #ffd166;
-    --me: #3ea6ff;
-    --foe: #ff5a5a;
-    --ok: #8ee39b;
-    --no: #7a8199;
-  }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) { --bg: #0d1224; }
+    --ink: #1d2b3a;
+    --ink-2: #5b6b7c;
+    --glass: rgba(255, 255, 255, 0.86);
+    --glass-strong: rgba(255, 255, 255, 0.96);
+    --line: rgba(29, 43, 58, 0.10);
+    --me: #2b8df0;
+    --me-2: #5cc5ff;
+    --foe: #f0506e;
+    --foe-2: #ff8f7a;
+    --gold: #f5a524;
+    --gold-2: #ffd45c;
+    --mint: #2fbf8f;
+    --shadow: 0 8px 24px rgba(20, 48, 32, 0.18);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
-  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; height: 100%; background: linear-gradient(#bfe6ff, #e8f6df); color: var(--ink); }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   button { font: inherit; color: inherit; cursor: pointer; }
   #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
-  /* 顶部 HUD */
-  #hud { display: grid; grid-template-columns: 1fr minmax(180px, 320px) 1fr; align-items: center; gap: 10px; padding: 6px 12px; background: linear-gradient(#141a2f, #10152a); border-bottom: 1px solid var(--line); min-height: 52px; }
-  .hp { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .hp .tag { font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .hp .bar { position: relative; flex: 1; height: 12px; background: #000a; border: 1px solid #0008; border-radius: 6px; overflow: hidden; }
-  .hp .fill { position: absolute; inset: 0 auto 0 0; width: 100%; transition: width .2s; }
-  .hp .num { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; color: var(--text); }
-  .hp.me .fill { background: linear-gradient(90deg, #2a7fd6, var(--me)); }
-  .hp.foe { flex-direction: row-reverse; }
-  .hp.foe .fill { background: linear-gradient(270deg, #c93a3a, var(--foe)); right: 0; left: auto; }
-  #center { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
-  #econ { display: flex; gap: 14px; align-items: baseline; font-size: 14px; white-space: nowrap; }
-  #gold { color: var(--gold); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
-  #income { font-size: 12px; color: var(--muted); }
-  #pop { font-variant-numeric: tabular-nums; }
-  #field { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  /* 小地图：画在战场左下角，完整地图的比例 2.5 : 1 */
-  #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 4; width: 200px; height: 80px; border: 1px solid var(--line); border-radius: 6px; background: #0a0e1c; display: block; cursor: pointer; touch-action: none; box-shadow: 0 4px 14px #0008; }
-  /* 镜头按钮：画布右侧居中 */
-  #camctl { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-  #camctl .cbtn { width: 40px; height: 40px; border-radius: 10px; background: #171d33e0; border: 1px solid var(--line); font-size: 20px; line-height: 1; }
-  #camctl .cbtn.wide { width: auto; height: auto; padding: 6px 10px; font-size: 12px; }
-  #camctl .cbtn.on { border-color: var(--gold); color: var(--gold); }
-  #right { position: absolute; right: 10px; top: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
-  #clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 46px; text-align: right; }
-  .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
-  .btn:active { transform: translateY(1px); }
-  .btn.primary { background: linear-gradient(#ffd166, #e9a93b); color: #2b1d05; border: none; font-weight: 800; padding: 10px 22px; font-size: 16px; }
-  .btn.ghost { background: transparent; }
+  /* 顶部：两个水晶血条居两侧，中间是金币、收入和人口，最右是时间和按钮 */
+  #hud { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 7px 14px; min-height: 52px; position: relative; z-index: 3; background: linear-gradient(rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.82)); box-shadow: 0 2px 14px rgba(20, 48, 32, 0.16); }
+  .side { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .side .line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .side.foe .line { justify-content: flex-end; }
+  .side .num { font-size: 16px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .side .tag { font-weight: 600; }
+  .side .alive { font-variant-numeric: tabular-nums; }
+  .side .bar { position: relative; height: 9px; border-radius: 99px; background: rgba(29, 43, 58, 0.10); overflow: hidden; }
+  .side .fill { position: absolute; inset: 0 auto 0 0; width: 100%; border-radius: 99px; transition: width 0.25s ease-out; }
+  #hp-me { background: linear-gradient(90deg, var(--me-2), var(--me)); }
+  #hp-foe { background: linear-gradient(270deg, var(--foe-2), var(--foe)); left: auto; right: 0; }
+  #center { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 200px; }
+  .econ { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .coin { display: inline-block; flex: none; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff8d6, var(--gold-2) 45%, var(--gold) 82%); box-shadow: inset 0 -2px 0 rgba(150, 90, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.15); }
+  #gold { font-size: 19px; font-weight: 800; color: #b96f00; font-variant-numeric: tabular-nums; }
+  #income { font-size: 11px; font-weight: 700; color: #1f9d6f; background: rgba(47, 191, 143, 0.14); padding: 1px 8px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+  .pop { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .popbar { width: 130px; height: 5px; border-radius: 99px; background: rgba(29, 43, 58, 0.10); overflow: hidden; }
+  #pop-fill { height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, #8ee6c2, var(--mint)); transition: width 0.25s; }
+  #pop-fill.warn { background: linear-gradient(90deg, #ffd17a, var(--gold)); }
+  #ctl { display: flex; align-items: center; gap: 6px; }
+  #clock { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+  .pill { height: 28px; min-width: 36px; padding: 0 11px; border: none; border-radius: 99px; background: rgba(29, 43, 58, 0.07); color: var(--ink); font-size: 12px; font-weight: 600; }
+  .pill:active { transform: scale(0.96); }
+  .pill.cheat { background: linear-gradient(135deg, #ffb27a, #ff7a6b); color: #fff; }
 
-  /* 战场 */
-  #stage { position: relative; flex: 1; min-height: 0; }
+  /* 战场：画布铺满，上面叠暗角和几个浮层 */
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
   #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
   #cv:active { cursor: grabbing; }
-  #toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: #000c; color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+  #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 42%, rgba(0, 0, 0, 0) 58%, rgba(10, 36, 20, 0.34) 100%); }
+  #toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 8; background: rgba(29, 43, 58, 0.88); color: #fff; padding: 7px 16px; border-radius: 99px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; box-shadow: var(--shadow); }
   #toast.show { opacity: 1; }
+  /* 小地图：左下角，完整地图的比例 2.5 : 1 */
+  #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 4; width: 180px; height: 70px; border-radius: 12px; border: 3px solid rgba(255, 255, 255, 0.92); box-shadow: var(--shadow); background: #2c4a2b; display: block; cursor: pointer; touch-action: none; }
+  /* 镜头按钮：右侧居中 */
+  #camctl { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #camctl .cbtn { width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--glass-strong); color: var(--ink); font-size: 22px; line-height: 1; box-shadow: var(--shadow); }
+  #camctl .cbtn.wide { width: auto; height: 32px; padding: 0 14px; border-radius: 99px; font-size: 12px; font-weight: 700; }
+  #camctl .cbtn.on { background: linear-gradient(135deg, var(--gold-2), var(--gold)); color: #3a2300; }
+  /* 批量出兵提示条：顶部居中 */
+  #batchbar { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 10px; background: var(--glass-strong); color: var(--ink); padding: 5px 5px 5px 16px; border-radius: 99px; box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
+  #batchbar.hidden { display: none; }
+  #batchbar.pending { background: linear-gradient(135deg, #ffe08a, #ffc04d); }
+  #batch-text { font-weight: 700; }
+  #batch-cancel { border: none; height: 28px; padding: 0 12px; border-radius: 99px; background: rgba(240, 80, 110, 0.14); color: #c92c4b; font-size: 12px; font-weight: 800; }
 
-  /* 出兵栏 */
-  #roster { display: flex; gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); overflow-x: auto; overscroll-behavior-x: contain; background: #0f1426; border-top: 1px solid var(--line); scrollbar-width: thin; }
-  .card { position: relative; flex: 0 0 74px; height: 98px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--tier, #888); border-radius: 8px; padding: 4px 2px 3px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; overflow: hidden; touch-action: manipulation; transition: transform .08s; }
-  .card:active { transform: scale(.97); }
-  .card canvas.av { width: 48px; height: 48px; image-rendering: pixelated; }
-  .card .nm { font-size: 12px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70px; }
-  .card .cost { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .card .cost b { color: var(--gold); }
-  .card .key { position: absolute; left: 3px; top: 3px; font-size: 10px; background: #000a; border-radius: 4px; padding: 0 4px; color: #cdd6f4; }
-  .card .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,.55); pointer-events: none; transition: height .1s linear; }
-  .card.no { color: var(--no); }
-  .card.no canvas.av { opacity: .45; }
-  .card.no .cost b { color: #8d7a4a; }
-  .card.flash { box-shadow: 0 0 0 2px var(--ok) inset; }
-  .card.bad { box-shadow: 0 0 0 2px var(--foe) inset; }
-  .sep { flex: 0 0 4px; }
-  .card.evil { border-color: #7a1f1f; border-top-color: #ff3b2e; background: linear-gradient(#3a0d0d, #1a0707); box-shadow: 0 0 12px #ff3b2e55 inset; }
-  .card.evil .nm { color: #ff9a7a; font-weight: 800; }
+  /* 出兵栏：白色圆角卡片，顶部一条兵种色，买不起的变灰 */
+  #roster { display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); overflow-x: auto; overscroll-behavior-x: contain; background: linear-gradient(rgba(255, 255, 255, 0.92), rgba(244, 249, 241, 0.97)); box-shadow: 0 -4px 16px rgba(20, 48, 32, 0.12); scrollbar-width: thin; }
+  .card { position: relative; flex: 0 0 66px; height: 84px; border-radius: 16px; background: #fff; box-shadow: 0 2px 6px rgba(20, 48, 32, 0.12); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 7px 3px 5px; overflow: hidden; touch-action: manipulation; transition: transform 0.1s ease, box-shadow 0.15s; }
+  .card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--tier, #9aa4b8); }
+  .card:active { transform: scale(0.94); }
+  .card .key { position: absolute; left: 6px; top: 9px; font-size: 10px; font-weight: 700; color: var(--ink-2); }
+  .card .av-wrap { width: 46px; height: 40px; margin-top: 4px; border-radius: 14px; display: grid; place-items: center; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--tier, #9aa4b8) 24%, #fff) 0%, #f2f6f0 78%); }
+  .card canvas.av { width: 40px; height: 40px; image-rendering: pixelated; }
+  .card .nm { max-width: 62px; font-size: 11px; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .cost { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .card .cost .coin { width: 9px; height: 9px; }
+  .card .cost b { font-size: 11px; color: #b96f00; }
+  .card .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(29, 43, 58, 0.42); pointer-events: none; transition: height 0.1s linear; }
+  .card.no canvas.av { opacity: 0.42; filter: grayscale(0.6); }
+  .card.no .nm { color: #98a2ae; }
+  .card.no .cost b { color: #b7a27a; }
+  .card.flash { box-shadow: 0 0 0 2px var(--mint) inset, 0 2px 6px rgba(20, 48, 32, 0.12); }
+  .card.bad { box-shadow: 0 0 0 2px var(--foe) inset, 0 2px 6px rgba(20, 48, 32, 0.12); }
+  .card.pending { box-shadow: 0 0 0 3px var(--gold) inset, 0 0 14px rgba(245, 165, 36, 0.6); }
+  .card.evil { background: linear-gradient(180deg, #4a1218, #1c0708); }
+  .card.evil::before { background: #ff4d3d; }
+  .card.evil .key { color: #ffb8a4; }
+  .card.evil .nm { color: #ffb8a4; }
+  .card.evil .cost span { color: #f2c6b8; }
+  .card.evil .cost b { color: #ffd45c; }
+  .card.evil .av-wrap { background: radial-gradient(circle at 50% 35%, #7a1f24, #2a0a0c 80%); }
+  .card.evil .cd { background: rgba(0, 0, 0, 0.5); }
 
-  /* 撒旦技能栏 */
+  /* 撒旦技能栏：右下角，撒旦在场时才显示 */
   #satanbar { position: absolute; right: 12px; bottom: 12px; z-index: 6; display: flex; gap: 10px; }
   #satanbar.hidden { display: none; }
-  .sk-btn { position: relative; width: 66px; height: 66px; border-radius: 50%; border: 2px solid var(--c, #ff7a3d); background: radial-gradient(circle at 50% 35%, #3a1010, #120404); color: #fff; font-size: 12px; font-weight: 800; line-height: 1.15; padding: 0 6px; overflow: hidden; box-shadow: 0 0 14px color-mix(in srgb, var(--c) 60%, transparent); }
-  .sk-btn .k { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #ffd7c2; font-weight: 400; }
-  .sk-btn .cdm { position: absolute; inset: 0; background: conic-gradient(rgba(0,0,0,.72) var(--p, 0%), transparent 0); pointer-events: none; }
+  .sk-btn { position: relative; width: 62px; height: 62px; border-radius: 50%; border: 3px solid var(--c, #ff7a3d); background: radial-gradient(circle at 50% 35%, #4a1414, #140505); color: #fff; font-size: 12px; font-weight: 800; line-height: 1.15; padding: 0 6px; overflow: hidden; box-shadow: 0 6px 16px rgba(20, 10, 10, 0.35), 0 0 16px color-mix(in srgb, var(--c) 55%, transparent); }
+  .sk-btn .k { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #ffd7c2; font-weight: 400; }
+  .sk-btn .cdm { position: absolute; inset: 0; background: conic-gradient(rgba(0, 0, 0, 0.72) var(--p, 0%), transparent 0); pointer-events: none; }
   .sk-btn .cdn { position: absolute; inset: 0; display: grid; place-items: center; font-size: 18px; pointer-events: none; text-shadow: 0 1px 3px #000; }
-  .sk-btn:active { transform: scale(.95); }
+  .sk-btn:active { transform: scale(0.95); }
 
-  /* 作弊菜单 */
-  #cheat { position: absolute; top: 0; right: 0; bottom: 0; z-index: 25; width: min(380px, 100%); background: #0b0f1ef5; border-left: 1px solid var(--line); overflow-y: auto; padding: 12px 14px 20px; font-size: 13px; box-shadow: -12px 0 30px #0008; }
+  /* 作弊菜单：右侧滑出的白色面板 */
+  #cheat { position: absolute; top: 0; right: 0; bottom: 0; z-index: 25; width: min(380px, 100%); background: var(--glass-strong); color: var(--ink); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 22px; font-size: 13px; box-shadow: -12px 0 30px rgba(20, 48, 32, 0.18); -webkit-overflow-scrolling: touch; }
   #cheat.hidden { display: none; }
-  #cheat h2 { margin: 0 0 2px; font-size: 18px; color: #ff9a7a; display: flex; justify-content: space-between; align-items: center; }
-  #cheat .hint { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
-  #cheat fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; padding: 6px 10px 10px; }
-  #cheat legend { color: var(--gold); padding: 0 4px; font-size: 12px; }
-  #cheat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
-  #cheat .row > span { color: var(--muted); min-width: 64px; }
-  #cheat .chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 4px 10px; font-size: 12px; }
-  #cheat .chip.on { background: #5a1b14; border-color: #ff7a5a; color: #ffd7c9; }
-  #cheat input[type=number] { width: 120px; background: #000a; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
-  #cheat .danger { background: #6a1010; border-color: #ff5a5a; }
+  #cheat h2 { margin: 0 0 4px; font-size: 18px; color: #d9480f; display: flex; justify-content: space-between; align-items: center; }
+  #cheat .hint { color: var(--ink-2); font-size: 12px; margin: 0 0 8px; line-height: 1.55; }
+  #cheat fieldset { border: 1px solid var(--line); border-radius: 14px; margin: 10px 0; padding: 6px 12px 12px; background: rgba(244, 249, 241, 0.7); }
+  #cheat legend { color: #b96f00; padding: 0 6px; font-size: 12px; font-weight: 700; }
+  #cheat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; }
+  #cheat .row > span { color: var(--ink-2); min-width: 60px; font-size: 12px; }
+  #cheat .chip { background: #fff; border: 1px solid var(--line); border-radius: 99px; padding: 5px 11px; font-size: 12px; color: var(--ink); }
+  #cheat .chip.on { background: #ffe3c7; border-color: #f08c42; color: #7a3a0c; font-weight: 700; }
+  #cheat .chip.go { background: linear-gradient(135deg, var(--me), var(--mint)); border: none; color: #fff; font-weight: 700; padding: 8px 14px; }
+  #cheat .chip.danger { background: #ffe3e3; border-color: #ff8a8a; color: #b02a2a; }
+  #cheat input[type=number] { width: 120px; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px; font: inherit; font-variant-numeric: tabular-nums; }
 
-  /* 悬浮简介 */
-  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); background: #0c1020f2; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 8px 24px #0009; }
+  /* 兵种简介浮窗 */
+  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); background: rgba(255, 255, 255, 0.97); color: var(--ink); border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 10px 28px rgba(20, 48, 32, 0.22); }
   #tip h3 { margin: 0 0 2px; font-size: 16px; }
-  #tip h3 small { color: var(--muted); font-size: 12px; font-weight: 400; }
-  #tip .meta { color: var(--muted); font-size: 12px; }
-  #tip .sk { color: #ffe9b0; }
-  #tip .lore { color: var(--muted); font-style: italic; margin: 4px 0 0; }
+  #tip h3 small { color: var(--ink-2); font-size: 12px; font-weight: 500; }
+  #tip .meta { color: var(--ink-2); font-size: 12px; }
+  #tip .sk { color: #b06a00; font-weight: 700; }
+  #tip .lore { color: var(--ink-2); font-style: italic; margin: 4px 0 0; }
   #tip ul { margin: 2px 0; padding-left: 16px; }
 
-  /* 覆盖层 */
-  .overlay { position: absolute; inset: 0; z-index: 30; background: #050813d9; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  /* 开局 / 暂停 / 结束：毛玻璃蒙层 + 白色面板 */
+  .overlay { position: absolute; inset: 0; z-index: 30; background: rgba(226, 244, 234, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 16px; }
   .overlay.hidden { display: none; }
-  .panel { width: min(520px, 100%); max-height: 100%; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; box-shadow: 0 16px 48px #000a; }
-  .panel h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: 2px; background: linear-gradient(90deg, #ffe9a8, #ffb36b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .panel { width: min(520px, 100%); max-height: 100%; overflow-y: auto; background: var(--glass-strong); color: var(--ink); border-radius: 24px; padding: 22px 24px; box-shadow: 0 24px 60px rgba(20, 48, 32, 0.25); }
+  .panel h1 { margin: 0 0 4px; font-size: 34px; font-weight: 900; letter-spacing: 3px; background: linear-gradient(90deg, var(--me), var(--mint)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .panel h2 { margin: 0 0 10px; font-size: 22px; }
-  .panel p { margin: 6px 0; color: #d7dcef; line-height: 1.6; font-size: 14px; }
-  .panel .muted { color: var(--muted); font-size: 13px; }
-  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 16px; }
-  .levels button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px; text-align: center; }
+  .panel p { margin: 6px 0; color: #34475a; line-height: 1.65; font-size: 14px; }
+  .panel .muted { color: var(--ink-2); font-size: 13px; }
+  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 16px; }
+  .levels button { background: #f4f8f2; border: 2px solid transparent; border-radius: 16px; padding: 12px 6px; text-align: center; color: var(--ink); }
   .levels button b { display: block; font-size: 16px; }
-  .levels button small { color: var(--muted); font-size: 11px; }
-  .levels button.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; justify-content: flex-end; }
+  .levels button small { display: block; margin-top: 2px; color: var(--ink-2); font-size: 11px; line-height: 1.4; }
+  .levels button.on { border-color: var(--me); background: #eaf4ff; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; justify-content: flex-end; }
+  .btn { background: #eef3f7; border: none; border-radius: 12px; padding: 8px 14px; font-size: 13px; color: var(--ink); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: linear-gradient(135deg, var(--me), var(--mint)); color: #fff; font-weight: 800; padding: 11px 26px; font-size: 16px; box-shadow: 0 8px 18px rgba(43, 141, 240, 0.35); }
   table.stats { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; font-variant-numeric: tabular-nums; }
-  table.stats th, table.stats td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+  table.stats th, table.stats td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; }
   table.stats th:first-child, table.stats td:first-child { text-align: left; }
-  .win { color: var(--ok); }
-  .lose { color: var(--foe); }
-  .draw { color: var(--gold); }
-  #rotate { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg); align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; }
+  .win { color: #1f9d6f; }
+  .lose { color: #d6334f; }
+  .draw { color: #b96f00; }
+  #rotate { display: none; position: fixed; inset: 0; z-index: 99; background: linear-gradient(#bfe6ff, #e8f6df); align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; line-height: 1.8; }
   @media (orientation: portrait) and (max-width: 900px) { #rotate { display: flex; } }
+
+  /* 窄屏（横屏小手机）：顶部改两行，卡片、镜头按钮都小一点 */
   @media (max-width: 700px) {
-    #hud { grid-template-columns: 1fr 1fr; gap: 6px; }
+    #hud { grid-template-columns: 1fr 1fr; gap: 6px 10px; }
     #center { grid-column: 1 / -1; order: -1; }
-    #econ { font-size: 13px; gap: 10px; }
     #gold { font-size: 16px; }
-    #right { gap: 6px; }
-    .btn { padding: 4px 9px; font-size: 12px; }
-    .card { flex-basis: 66px; height: 90px; }
+    .popbar { width: 100px; }
+    .card { flex-basis: 60px; height: 78px; }
     #minimap { left: 8px; bottom: 8px; width: 140px; height: 56px; }
-    #camctl { right: 8px; gap: 4px; }
-    #camctl .cbtn { width: 36px; height: 36px; font-size: 18px; }
+    #camctl { right: 8px; gap: 6px; }
+    #camctl .cbtn { width: 36px; height: 36px; font-size: 20px; }
   }
-  /* 矮的屏幕（手机横屏）：技能栏缩小，镜头按钮往上挪，撒旦在场时两者不重叠 */
+  /* 矮的屏幕（手机横屏）：顶部和出兵栏收紧，留给战场更多高度；撒旦在场时技能栏和镜头按钮不重叠 */
   @media (max-height: 500px) {
+    #hud { min-height: 44px; padding: 4px 12px; }
+    .card { height: 76px; }
+    .card .av-wrap { width: 40px; height: 34px; margin-top: 2px; }
+    .card canvas.av { width: 32px; height: 32px; }
+    .panel { padding: 14px 18px; border-radius: 18px; }
+    .panel h1 { font-size: 26px; margin-bottom: 0; }
+    .panel p { font-size: 12px; line-height: 1.5; margin: 4px 0; }
+    .levels { margin: 8px 0 10px; gap: 8px; }
+    .levels button { padding: 7px 4px; }
+    .levels button b { font-size: 14px; }
+    .levels button small { font-size: 10.5px; }
+    .actions { margin-top: 10px; }
+    .tall-only { display: none; }
     #satanbar { right: 8px; bottom: 8px; gap: 8px; }
-    .sk-btn { width: 50px; height: 50px; font-size: 11px; }
-    #camctl { top: 42%; right: 8px; gap: 4px; }
+    .sk-btn { width: 52px; height: 52px; font-size: 11px; }
+    #camctl { top: 42%; right: 8px; gap: 6px; }
     #camctl .cbtn { width: 34px; height: 34px; font-size: 18px; }
   }
 </style>
@@ -161,27 +198,35 @@
 <body>
 <div id="app">
   <header id="hud">
-    <div class="hp me"><span class="tag">我方水晶</span><div class="bar"><div class="fill" id="hp-me"></div></div><span class="num" id="hp-me-n">4000</span></div>
-    <div id="center">
-      <div id="econ"><span id="gold">300</span><span id="income">+25/秒</span><span id="pop">人口 0/120</span></div>
-      <div id="field">在场：我方 0 / 电脑 0</div>
+    <div class="side me">
+      <div class="line"><span class="tag">我方水晶</span><span class="num" id="hp-me-n">6000</span><span class="alive" id="alive-me">在场 0</span></div>
+      <div class="bar"><div class="fill" id="hp-me"></div></div>
     </div>
-    <div class="hp foe"><span class="tag">电脑水晶</span><div class="bar"><div class="fill" id="hp-foe"></div></div><span class="num" id="hp-foe-n">4000</span></div>
+    <div id="center">
+      <div class="econ"><i class="coin"></i><b id="gold">300</b><span id="income">+10/秒</span></div>
+      <div class="pop"><span id="pop">人口 0/40</span><div class="popbar"><div id="pop-fill"></div></div></div>
+    </div>
+    <div class="side foe">
+      <div class="line"><span class="alive" id="alive-foe">在场 0</span><span class="num" id="hp-foe-n">6000</span><span class="tag">电脑水晶</span></div>
+      <div class="bar"><div class="fill" id="hp-foe"></div></div>
+    </div>
+    <div id="ctl">
+      <span id="clock">00:00</span>
+      <button class="pill" id="btn-speed" title="切换 1 倍速 / 2 倍速（Z）">1×</button>
+      <button class="pill" id="btn-pause" title="暂停（空格）">暂停</button>
+      <button class="pill cheat" id="btn-cheat" title="作弊菜单（C）">作弊</button>
+    </div>
   </header>
   <main id="stage">
     <canvas id="cv"></canvas>
+    <div id="vignette"></div>
     <canvas id="minimap" title="小地图：点击或拖动跳转"></canvas>
     <div id="camctl">
       <button class="btn cbtn" id="btn-zin" title="放大（]）">+</button>
       <button class="btn cbtn" id="btn-zout" title="缩小（[）">−</button>
       <button class="btn cbtn wide" id="btn-follow" title="镜头跟随战斗中心；手动操作后暂停 3 秒">跟随战斗</button>
     </div>
-    <div id="right">
-      <span id="clock">00:00</span>
-      <button class="btn" id="btn-speed" title="切换 1 倍速 / 2 倍速（Z）">1×</button>
-      <button class="btn" id="btn-pause" title="暂停（空格）">暂停</button>
-      <button class="btn" id="btn-cheat" title="作弊菜单（C）">作弊</button>
-    </div>
+    <div id="batchbar" class="hidden"><span id="batch-text"></span><button id="batch-cancel" title="退出批量出兵（Esc）">取消</button></div>
     <div id="toast"></div>
     <div id="satanbar" class="hidden"></div>
     <aside id="cheat" class="hidden" aria-label="作弊菜单"></aside>
@@ -193,14 +238,15 @@
     <div class="panel">
       <h1>糯糯战记</h1>
       <p class="muted">单机平原对战。花金币出兵，兵会自己往前走、遇到敌人就打；先打爆对方水晶的一方获胜。</p>
+      <p class="muted tall-only">金币和人口上限都会随时间越涨越多，前期抠一点，后期才放得开。</p>
       <p class="muted">选择电脑难度</p>
       <div class="levels" id="levels">
         <button data-level="easy"><b>简单</b><small>电脑收入 ×0.8，出兵随意</small></button>
-        <button data-level="normal" class="on"><b>普通</b><small>会克制你的兵种</small></button>
+        <button data-level="normal" class="on"><b>普通</b><small>会针对玩家的兵种</small></button>
         <button data-level="hard"><b>困难</b><small>收入 ×1.15，会抢经济、攒钱大招</small></button>
       </div>
-      <p>出兵：点击下方兵种，或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦（只有你能用）。长按（或鼠标悬停）看兵种简介。</p>
-      <p>镜头：拖动或双指捏合，滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b> 放手动技能，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
+      <p>出兵：轻点下方兵种（划动和长按不出兵），或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦（只有玩家能用）。长按兵种看简介。</p>
+      <p>镜头：拖动或双指捏合，手指往右拖，画面往左走；滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b> 放手动技能，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
       <div class="actions"><button class="btn primary" id="btn-start">开始对战</button></div>
     </div>
   </section>
@@ -231,16 +277,22 @@
 // ---- src/rules.js ----
 // 糯糯战记 全局规则（设计稿 v1）：克制倍率、状态、元素反应、经济、水晶
 window.RULES = {
-  // 战场是二维平原。inset：水晶圆心离左右边界的距离；出兵点在自家水晶内侧 spawnDepth 的纵深里，y 方向以 h/2 为中心展开 spawnSpread
-  map: { w: 8000, h: 3200, inset: 420, crystalRadius: 70, crystalHp: 6000, spawnDepth: 240, spawnSpread: 900 },
+  // 战场是二维平原。inset：水晶圆心离左右边界的距离；出兵点在自家水晶内侧 spawnDepth 的纵深里，
+  // y 方向以 h/2 为中心铺开 spawnSpread（几乎整条出兵带，兵不会挤成一条线）
+  map: { w: 8000, h: 3200, inset: 420, crystalRadius: 70, crystalHp: 6000, spawnDepth: 240, spawnSpread: 2400 },
 
   // 水晶自带炮塔，保证没有远程的阵容也不会被飞行单位白打
   crystal: { atk: 25, aspd: 1.0, dmg: 'pierce', range: 220, canHitAir: true },
 
+  // 经济：开局金币少，之后收入和人口上限都随对局时间涨，不封顶（越打越大）
+  //   每秒基础收入 = incomeBase + incomeGrowth × 对局秒数（再乘阵营收入倍率，宝箱另加）
+  //   人口上限     = supplyBase + supplyGrowth × 对局秒数（向下取整）
   economy: {
     startGold: 300,
-    income: 25, // 每秒
-    supplyCap: 120,
+    incomeBase: 10,
+    incomeGrowth: 0.4,
+    supplyBase: 40,
+    supplyGrowth: 0.8,
     corpseSeconds: 6,
   },
 
@@ -2457,7 +2509,14 @@ window.HD_SHEETS = {
   const MAX_R = 40;         // 单位半径上限，查询范围要多留这一截
   const REACH = 4;          // 攻击距离的余量（中心到中心）
   const RETARGET = 0.25;    // 追击目标的重新计算间隔（秒）
-  const GROUP_GAP = 22;     // 同一组单位在出兵点附近的错开间距
+  const GROUP_GAP_X = 26;   // 同一组单位往后排的间距
+  const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
+  const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
+  const MASS_DEPTH = 3000;  // 批量出兵：横向最多排多深，人再多就挤紧
+  const BATCH_MAX = 2000;   // 批量出兵：同一兵种一次直接上场的上限；超出的进待命队列，场上这个兵种少了再陆续补进来
+  const ENTER_PER_STEP = 60; // 待命队列每步最多进场的个数（陆续进场，不是一下子涌进来）
+  const BUDGET_MS = 24;     // 一帧里逻辑最多占用的毫秒数，超了就停，欠的时间留到下一帧（慢放，不卡死）
+  const ACC_MAX = 0.25;     // 欠的模拟时间上限（秒）：卡顿之后不快进补回来
 
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -2590,6 +2649,7 @@ window.HD_SHEETS = {
       this.stat = { alive: [0, 0], swing: [0, 0] };
       this.rangedBy = [[], []];
       this.pairBuf = [];        // 分离推挤用的重叠对缓冲区（复用，避免每步分配）
+      this.queues = [];         // 批量出兵的待命队列：{ side, uid, left }
     }
 
     // ---------- 事件与特效（给渲染和界面用） ----------
@@ -2713,6 +2773,14 @@ window.HD_SHEETS = {
     }
 
     // ---------- 出兵 ----------
+    // 基础收入（每秒，不含宝箱和作弊倍率）：随对局时间线性涨，不封顶
+    baseIncome(side) {
+      return (R.economy.incomeBase + R.economy.incomeGrowth * this.time) * this.sides[side].incomeMul;
+    }
+    // 人口上限：随对局时间线性涨，不封顶（作弊的“无限人口”另算）
+    supplyCap() {
+      return Math.floor(R.economy.supplyBase + R.economy.supplyGrowth * this.time);
+    }
     canSpawn(side, uid) {
       const d = C.BY_ID[uid];
       const S = this.sides[side];
@@ -2722,7 +2790,7 @@ window.HD_SHEETS = {
       const ch = side === 0 ? this.cheats : null;
       if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
-      if (S.supplyUsed + d.supply > R.economy.supplyCap && !(ch && ch.noSupply)) return 'supply';
+      if (S.supplyUsed + d.supply > this.supplyCap() && !(ch && ch.noSupply)) return 'supply';
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
       return 'ok';
     }
@@ -2741,15 +2809,76 @@ window.HD_SHEETS = {
       for (let i = 0; i < d.count; i++) {
         const row = Math.floor(i / cols), col = i % cols;
         this.addUnit(side, d, {
-          x: fp.x + back * row * GROUP_GAP,
-          y: fp.y + (col - (cols - 1) / 2) * GROUP_GAP,
+          x: fp.x + back * row * GROUP_GAP_X,
+          y: fp.y + (col - (cols - 1) / 2) * GROUP_GAP_Y,
           group,
         });
       }
       this.emit({ t: 'spawn', side, uid });
       return true;
     }
-    // 出兵点：自家水晶内侧 spawnDepth 的纵深，y 以 h/2 为中心展开 spawnSpread
+    // 批量出兵（作弊）：不扣金币、人口、冷却，一次出 n 个单独的单位（不是“组”）。
+    // 最多直接上场 BATCH_MAX 个：纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
+    // 超出的进待命队列（见 enterQueues），场上同一兵种少了再陆续进场，不会一次算几十万个单位卡死。
+    // 批量单位不占人口、不计入 spawned，不影响电脑的出兵比例。撒旦这类一次只能有一个的不批量。返回总个数
+    massSpawn(side, uid, n) {
+      const d = C.BY_ID[uid];
+      if (!d || this.ended || !(n > 0)) return 0;
+      if (d.playerOnly && side !== 0) return 0;
+      if (d.maxOnField) return 0;
+      const now = Math.min(n, BATCH_MAX);
+      const M = R.map;
+      const band = M.spawnSpread;
+      const y0 = M.h / 2 - band / 2;
+      const rows = Math.max(1, Math.min(now, Math.floor(band / MASS_GAP)));
+      const cols = Math.ceil(now / rows);
+      const gx = Math.min(MASS_GAP, MASS_DEPTH / cols);
+      const x0 = this.batchFront(side);
+      const dir = side === 0 ? 1 : -1;
+      for (let i = 0; i < now; i++) {
+        const row = i % rows, col = Math.floor(i / rows);
+        this.addUnit(side, d, {
+          x: x0 + dir * col * gx + (this.rng() - 0.5) * 6,
+          y: y0 + (row + 0.5) * (band / rows) + (this.rng() - 0.5) * 6,
+        });
+      }
+      if (n > now) this.queues.push({ side, uid, left: n - now });
+      return n;
+    }
+    // 批量出兵的起点：自家水晶前沿（和正常出兵的纵深起点一样）
+    batchFront(side) {
+      const M = R.map;
+      return side === 0 ? M.inset + M.crystalRadius + 60 : M.w - (M.inset + M.crystalRadius + 60);
+    }
+    // 待命队列：每步把队列里的单位放进出兵带（随机落点，一批批涌上来）。同一兵种场上不超过 BATCH_MAX
+    enterQueues() {
+      for (const q of this.queues) {
+        const room = BATCH_MAX - this.count(q.side, q.uid);
+        const k = Math.min(q.left, Math.max(0, room), ENTER_PER_STEP);
+        if (k <= 0) continue;
+        const d = C.BY_ID[q.uid];
+        const M = R.map;
+        const band = M.spawnSpread;
+        const y0 = M.h / 2 - band / 2;
+        const x0 = this.batchFront(q.side);
+        const dir = q.side === 0 ? 1 : -1;
+        for (let i = 0; i < k; i++) {
+          this.addUnit(q.side, d, {
+            x: x0 + dir * this.rng() * 600,
+            y: y0 + this.rng() * band,
+          });
+        }
+        q.left -= k;
+      }
+      this.queues = this.queues.filter((q) => q.left > 0);
+    }
+    // 待命队列里还有多少个没上场（一方的合计）
+    queued(side) {
+      let n = 0;
+      for (const q of this.queues) if (q.side === side) n += q.left;
+      return n;
+    }
+    // 出兵点：自家水晶内侧 spawnDepth 的纵深，y 以 h/2 为中心铺开 spawnSpread（整条出兵带）
     formationPoint(side) {
       const M = R.map;
       const along = M.inset + M.crystalRadius + 60 + this.rng() * M.spawnDepth;
@@ -3068,17 +3197,20 @@ window.HD_SHEETS = {
     }
 
     // ---------- 主循环 ----------
-    // 真实时间 → 固定步长：每帧最多 12 步，防止卡顿时螺旋
+    // 真实时间 → 固定步长：每帧最多 12 步，并且不超过 BUDGET_MS 毫秒。单位很多时一帧算不完，
+    // 就停在这里、欠的时间留到下一帧（游戏变慢，界面不会被卡死）；欠得太多的部分直接丢掉，不快进
     update(realDt) {
       if (this.ended) return;
       this.acc += Math.min(0.1, realDt) * this.speed;
+      const t0 = Date.now();
       let n = 0;
       while (this.acc >= DT && n < 12 && !this.ended) {
         this.step(DT);
         this.acc -= DT;
         n++;
+        if (Date.now() - t0 > BUDGET_MS) break;
       }
-      if (n >= 12) this.acc = 0;
+      if (this.acc > ACC_MAX) this.acc = ACC_MAX;
     }
 
     step(dt) {
@@ -3092,11 +3224,13 @@ window.HD_SHEETS = {
         const S = this.sides[s];
         let mimics = 0;
         for (const u of this.units) if (u.side === s && u.uid === 'mimic' && this.alive(u)) mimics++;
-        S.gold += (R.economy.income * S.incomeMul + 3 * mimics) * this.cheats.incomeMul[s] * dt;
+        S.gold += (this.baseIncome(s) + 3 * mimics) * this.cheats.incomeMul[s] * dt;
         if (s === 0 && this.cheats.infiniteGold) S.gold = Math.max(S.gold, 999999);
         for (const k of Object.keys(S.cdLeft)) S.cdLeft[k] = Math.max(0, S.cdLeft[k] - dt);
         for (let i = 0; i < 3; i++) S.manualCd[i] = this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
       }
+
+      if (this.queues.length) this.enterQueues();
 
       for (const u of this.units.slice()) {
         if (u.dead) continue;
@@ -3209,6 +3343,7 @@ window.HD_SHEETS = {
     wipe(side) {
       for (const u of this.units.slice()) if (u.side === side) this.removeUnit(u);
       this.bodies = this.bodies.filter((b) => b.side !== side);
+      this.queues = this.queues.filter((q) => q.side !== side);
     }
 
     // 胜负：一方水晶归零就结束，另一方获胜；双方水晶在同一步归零判平局（winner = 'draw'）
@@ -3224,6 +3359,7 @@ window.HD_SHEETS = {
 
   Engine.DT = DT;
   Engine.Grid = Grid;
+  Engine.BATCH_MAX = BATCH_MAX;
   window.Engine = Engine;
 })();
 
@@ -3333,8 +3469,9 @@ window.HD_SHEETS = {
         totalUnits += S.spawned[d.id] || 0;
       }
       const mimics = eng.count(side, 'mimic');
-      const income = R.economy.income * S.incomeMul;
-      const crowd = S.supplyUsed / R.economy.supplyCap;
+      const income = eng.baseIncome(side);            // 收入和人口上限都随时间涨，每次决策现算
+      const cap = eng.supplyCap();
+      const crowd = S.supplyUsed / cap;
       const TIERS = ['T3', 'T2', 'T1', 'T0.5', 'T0'];
       // 敌人离我方水晶多近：用来判断“告急”（平原版：到我方水晶圆心的距离，1100 像素以内算告急）
       const own = eng.crystals[side];
@@ -3393,10 +3530,13 @@ window.HD_SHEETS = {
       // 钱差一点就攒：平时等 40 秒以内（覆盖 T0 的 420–480 金），告急时只等 10 秒
       if (why === 'gold' && S.gold + income * (danger ? 10 : 40) >= top.cost) return;
       // 人口差一点：等前线死人腾人口，不用便宜兵把人口塞满（告急时不等）
-      if (!danger && why === 'supply' && top.supply <= R.economy.supplyCap * 0.4) return;
+      if (!danger && why === 'supply' && top.supply <= cap * 0.4) return;
       // 退而求其次只在分数接近第一名的兵种里挑；差太多就攒钱。
       // 告急时放宽到 2 分，但不再“什么便宜买什么”——以前守家时会刷出几百只灰鼠群
-      const floor = order[0].s - (danger ? 2.0 : 1.0);
+      // 富余时（金币够买 3 个第一名）不卡分数下限：第一名在冷却中，就买能买的最高分兵种，不让金币堆着
+      // （收入随时间涨之后，只按分数挑会攒到几万金币，见 docs/QUESTIONS.md 第 43 条）
+      const rich = S.gold >= 3 * top.cost;
+      const floor = rich ? -Infinity : order[0].s - (danger ? 2.0 : 1.0);
       for (const { def, s } of order.concat(order === scored ? [] : scored)) {
         if (s < floor) break;
         if (eng.canSpawn(side, def.id) === 'ok') {
@@ -3426,10 +3566,9 @@ window.HD_SHEETS = {
   const MW = R.map.w, MH = R.map.h;
 
   const K = 0.6;                    // 地面压扁系数
-  const ZOOM_MIN = 0.22, ZOOM_MAX = 1.8, ZOOM_INIT = 0.7;
-  const LOD_ZOOM = 0.5;             // 低于它时单位画成阵营色圆点
-  const SPRITE_BUDGET = 900;        // 视野内最多画这么多个精灵，其余画成圆点
-  const BODY_BUDGET = 400;          // 尸体的精灵上限，超出的同样画成圆点
+  // 缩远能看到整张地图；默认比原来小一半多，兵不会一上来就很大。缩远时单位照常画精灵，不再变成圆点
+  const ZOOM_MIN = 0.12, ZOOM_MAX = 1.8, ZOOM_INIT = 0.45;
+  const DETAIL_ZOOM = 0.3;          // 低于它时省掉角标、蓄力条、冰圈这些小细节（精灵本身照常画）
   const MANUAL_PAUSE = 3;           // 手动操作后暂停跟随的秒数
   const FOLLOW_RATE = 2.5;          // 跟随时镜头追赶跟随目标的速度（每秒比例）
   const FOCUS_RATE = 0.8;           // 跟随目标本身的平滑速度（每秒比例）：单位进出战斗时目标不跳变
@@ -3695,8 +3834,8 @@ window.HD_SHEETS = {
       this.markManual();
       this.clamp();
     }
-    // 拖动：内容跟着指针走
-    dragCam(dx, dy) { this.moveCam(-dx, -dy); }
+    // 拖动：镜头跟着手指走，所以手指往右，镜头往右，画面往左走（和 v1 的手感一样）
+    dragCam(dx, dy) { this.moveCam(dx, dy); }
     // 以屏幕上某点为中心缩放，那一点下面的世界位置保持不动
     zoomAt(px, py, zoom) {
       const c = this.cam;
@@ -3793,7 +3932,7 @@ window.HD_SHEETS = {
       ents.sort((a, b) => a.y - b.y);
       for (const it of ents) {
         if (it.k === 1) this.drawCrystal(it.o, it.sx, it.sy);
-        else this.drawUnit(it.o, it.sx, it.sy, it.gy, it.sp);
+        else this.drawUnit(it.o, it.sx, it.sy, it.gy);
       }
       this.drawProjectiles(eng);
       this.drawFx(eng);
@@ -3843,56 +3982,27 @@ window.HD_SHEETS = {
       );
     }
 
-    // 找出视野内要画的东西：单位和水晶进入排序列表；缩远或超出预算的单位只画圆点
+    // 找出视野内要画的东西：单位和水晶进入排序列表，尸体单独一份。视野外的剔掉，视野内的全部画精灵
     collect(eng) {
       const z = this.cam.zoom, w = this.w, h = this.h;
-      const cx0 = w / 2, cy0 = h / 2;
-      const lod = z < LOD_ZOOM;
       const ents = [];
-      const near = [];
       for (const c of eng.crystals) {
         const gx = this.sx(c.x), gy = this.sy(c.y);
-        ents.push({ k: 1, o: c, y: c.y, sx: gx, sy: gy, gy, sp: true });
+        ents.push({ k: 1, o: c, y: c.y, sx: gx, sy: gy, gy });
       }
       for (const u of eng.units) {
         const gx = this.sx(u.x), gy = this.sy(u.y);
         const py = gy - (u.flying ? FLY_LIFT * z : 0);
         if (gx < -CULL || gx > w + CULL || py < -CULL || py > h + CULL) continue;
-        const it = { k: 0, o: u, y: u.y, sx: gx, sy: py, gy, sp: false, d: (gx - cx0) ** 2 + (py - cy0) ** 2 };
-        ents.push(it);
-        near.push(it);
-      }
-      if (!lod) {
-        // 离镜头中心近的优先画精灵
-        if (near.length > SPRITE_BUDGET) near.sort((a, b) => a.d - b.d);
-        const n = Math.min(SPRITE_BUDGET, near.length);
-        for (let i = 0; i < n; i++) near[i].sp = true;
+        ents.push({ k: 0, o: u, y: u.y, sx: gx, sy: py, gy });
       }
       const bodies = [];
-      let bodySprites = 0;
       for (const b of eng.bodies) {
         const gx = this.sx(b.x), gy = this.sy(b.y);
         if (gx < -CULL || gx > w + CULL || gy < -CULL || gy > h + CULL) continue;
-        const sp = !lod && bodySprites < BODY_BUDGET;
-        if (sp) bodySprites++;
-        bodies.push({ b, sx: gx, sy: gy, sp });
+        bodies.push({ b, sx: gx, sy: gy });
       }
       return { ents, bodies };
-    }
-
-    // 单位的圆点（LOD 和超出预算时用）
-    dot(x, y, side, alpha) {
-      const ctx = this.ctx;
-      const r = 2 + Math.min(2, this.cam.zoom * 2);
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = SIDE_COLOR[side];
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.stroke();
-      ctx.globalAlpha = 1;
     }
 
     drawCrystal(c, cx, base) {
@@ -4009,25 +4119,17 @@ window.HD_SHEETS = {
       const left = b.life - b.age;
       const alpha = Math.max(0, Math.min(1, left / (b.corpse ? 1.5 : 0.4)));
       if (alpha <= 0) return;
-      if (!it.sp) {
-        this.dot(it.sx, it.sy, b.side, alpha * 0.6);
-        return;
-      }
-      const sh = SH[b.sheet];
-      if (!sh) return;
+      if (!SH[b.sheet]) return;
       const S = z * 1.3 * (b.small ? 0.7 : 1) * (b.scale || 1);
       SR.drawHero(ctx, { sheet: b.sheet, aspd: 1 }, 'death', b.age, it.sx, it.sy, S, b.side === 0 ? 1 : -1, { alpha });
     }
 
-    // 单位：sp 为 false 时画成圆点（缩远、超出预算）
-    drawUnit(u, px, py, gy, sp) {
-      if (!sp) {
-        this.dot(px, py, u.side, u.bones ? 0.45 : 1);
-        return;
-      }
+    // 单位：精灵照常画。缩远时（DETAIL_ZOOM 以下）省掉角标、蓄力条、冰圈、尘土这些小细节
+    drawUnit(u, px, py, gy) {
       const sh = SH[u.sheet];
       if (!sh) return;
       const ctx = this.ctx, z = this.cam.zoom;
+      const detail = z >= DETAIL_ZOOM;
       const S = z * 1.3 * (u.small ? 0.7 : 1) * (u.def.scale || 1);
       // 地面阴影（飞行单位的影子留在地上）。精灵自己的影子关掉，只画这一处
       if (!u.burrowed) {
@@ -4052,27 +4154,29 @@ window.HD_SHEETS = {
 
       const top = py - sh.bodyH * S - 8 * z;
       // 冻结：脚下冰圈
-      if (C.has(u, 'frozen')) {
+      if (detail && C.has(u, 'frozen')) {
         ctx.strokeStyle = 'rgba(159,232,255,0.8)';
         ctx.lineWidth = 2;
         ellipse(ctx, px, gy, sh.bodyW * S * 0.6, 4 * z);
         ctx.stroke();
       }
-      // 血条
-      const bw = Math.max(24, sh.bodyW * S * 1.05), bh = 4 * z;
+      // 血条：近看时全部画；缩远时只画受伤的（满血的一排血条叠在一起会变成一片色块，盖住精灵）
+      const bw = Math.max(24, sh.bodyW * S * 1.05), bh = Math.max(2, 4 * z);
       const bx = px - bw / 2, by = top - bh;
       const frac = Math.max(0, Math.min(1, u.hp / u.maxHp));
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-      ctx.fillStyle = SIDE_COLOR[u.side];
-      ctx.fillRect(bx, by, bw * frac, bh);
+      if (detail || frac < 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+        ctx.fillStyle = SIDE_COLOR[u.side];
+        ctx.fillRect(bx, by, bw * frac, bh);
+      }
       const shield = u.st.holyShield;
       if (shield && shield.absorb > 0) {
         ctx.fillStyle = 'rgba(255,227,138,0.9)';
         ctx.fillRect(bx, by - 3 * z, Math.min(bw, bw * shield.absorb / 200), 2 * z);
       }
       // 状态角标
-      const badges = BADGES.filter(([id]) => C.has(u, id));
+      const badges = detail ? BADGES.filter(([id]) => C.has(u, id)) : [];
       if (badges.length) {
         const bs = Math.max(10, 13 * z);
         const total = badges.length * (bs + 2);
@@ -4089,7 +4193,7 @@ window.HD_SHEETS = {
         }
       }
       // 蓄力条（居合、冰封）
-      if (u.cast) {
+      if (detail && u.cast) {
         const k = Math.min(1, u.cast.t / u.cast.dur);
         const cw = 56 * z, chh = 4 * z;
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -4373,6 +4477,9 @@ window.HD_SHEETS = {
   };
   const PAN_SPEED = 900;        // 键盘平移：屏幕像素每秒
   const ZOOM_RATE = 1.2;        // 按住缩放键时，每秒的对数缩放量
+  const TAP_SLOP = 10;          // 出兵栏：手指移动超过这么多像素就不算点按（是划动，不出兵）
+  const BIG_BATCH = 1000;       // 批量出兵达到这个数量，要连点两次同一个兵种才出，防止误触
+  const BATCH_CONFIRM_MS = 3000; // 连点确认的等待时间
   // 键盘平移的镜头方向。W 留给 Q–P 出兵（第 12 个兵种），上移用方向键
   const PAN = new Map([
     ['ArrowLeft', [-1, 0]], ['a', [-1, 0]], ['ArrowRight', [1, 0]], ['d', [1, 0]],
@@ -4397,6 +4504,7 @@ window.HD_SHEETS = {
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
   const normKey = (e) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
+  const fmtCount = (n) => (n >= 1e4 ? `${+(n / 1e4).toFixed(1)} 万` : String(n));
 
   const state = {
     eng: null,
@@ -4412,6 +4520,7 @@ window.HD_SHEETS = {
     toastT: 0,
     panKeys: new Set(),
     zoomKeys: new Set(),
+    batch: null,        // 批量出兵模式：{ side, count, pendingUid, pendingT }，由作弊菜单打开
   };
 
   // ---------- 出兵栏 ----------
@@ -4423,13 +4532,15 @@ window.HD_SHEETS = {
       card.dataset.uid = d.id;
       card.style.setProperty('--tier', TIER_COLOR[d.tier] || '#888');
       card.appendChild(el('span', 'key', KEYS[i]));
+      const wrap = el('div', 'av-wrap');
       const av = el('canvas', 'av');
       av.width = 48;
       av.height = 48;
-      card.appendChild(av);
+      wrap.appendChild(av);
+      card.appendChild(wrap);
       card.appendChild(el('div', 'nm', d.name));
       const cost = el('div', 'cost');
-      cost.innerHTML = `<b>${d.cost}</b> · 人口${d.supply}`;
+      cost.innerHTML = `<i class="coin"></i><b>${d.cost}</b><span>人口${d.supply}</span>`;
       card.appendChild(cost);
       const cd = el('div', 'cd');
       card.appendChild(cd);
@@ -4437,6 +4548,7 @@ window.HD_SHEETS = {
       state.cards.set(d.id, { card, av, cd, cost, def: d, drawn: false });
 
       card.addEventListener('pointerdown', (e) => onCardDown(e, d.id));
+      card.addEventListener('pointermove', onCardMove);
       card.addEventListener('pointerup', (e) => onCardUp(e, d.id));
       card.addEventListener('pointercancel', onCardCancel);
       card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hideTip(); });
@@ -4444,31 +4556,51 @@ window.HD_SHEETS = {
     });
   }
 
+  // 出兵栏的点按只认“轻点”：手指按下后移动超过 TAP_SLOP 像素就是划动（横向滚动出兵栏），不出兵；
+  // 按住超过 420 毫秒只弹出简介，松手也不出兵。误触来自划动和长按，这两种都不出兵。
+  let press = null;
   let pressTimer = 0;
-  let pressFired = false;
   function onCardDown(e, uid) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    pressFired = false;
+    press = { id: e.pointerId, uid, x: e.clientX, y: e.clientY, moved: false, long: false };
+    // 按住期间的移动都送到这张卡上，松手时才知道手指有没有离开
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* 不支持就算了，靠移动距离判断 */ }
     clearTimeout(pressTimer);
     pressTimer = setTimeout(() => {
-      pressFired = true;
+      if (!press || press.moved) return;
+      press.long = true;
       showTip(uid, state.cards.get(uid).card);
     }, 420);
   }
+  function onCardMove(e) {
+    if (!press || e.pointerId !== press.id || press.moved) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP) {
+      press.moved = true;
+      clearTimeout(pressTimer);
+    }
+  }
   function onCardUp(e, uid) {
     clearTimeout(pressTimer);
-    if (pressFired) {
+    const p = press;
+    press = null;
+    if (!p || p.moved || p.uid !== uid) return;
+    if (p.long) {
       if (e.pointerType !== 'mouse') hideTip();
-      pressFired = false;
       return;
     }
-    spawn(uid);
+    pick(uid);
   }
   // 手指在出兵栏横滑（pointercancel）：取消长按计时器，不然之后还会弹出简介且没有松手来收起
   function onCardCancel() {
     clearTimeout(pressTimer);
-    pressFired = false;
+    press = null;
     hideTip();
+  }
+
+  // 点兵种（卡片或数字键）：平时出一个；批量出兵模式下是批量出兵
+  function pick(uid) {
+    if (state.batch) batchPick(uid);
+    else spawn(uid);
   }
 
   // 出兵：成功闪绿，失败提示原因并闪红
@@ -4491,6 +4623,63 @@ window.HD_SHEETS = {
     void card.offsetWidth;
     card.classList.add(cls);
     setTimeout(() => card.classList.remove(cls), 220);
+  }
+
+  // ---------- 批量出兵（作弊菜单打开，见 cheat-ui.js） ----------
+  // 进入后顶部出现提示条，点下方兵种就按设定的数量批量出兵，不扣金币、人口和冷却。
+  // 数量 ≥ 1000 时要连点两次同一个兵种确认，防止误触出一大片。按 Esc 或提示条上的“取消”退出
+  function armBatch(side, count) {
+    const eng = state.eng;
+    if (!eng || !state.running || eng.ended) { toast('先开始一局'); return; }
+    state.batch = { side, count, pendingUid: null, pendingT: 0 };
+    updateBatchBar();
+  }
+  function disarmBatch() {
+    state.batch = null;
+    updateBatchBar();
+  }
+  function batchPick(uid) {
+    const b = state.batch;
+    const eng = state.eng;
+    if (!b || !eng || !state.running || state.paused || eng.ended) return;
+    const d = ALL.find((x) => x.id === uid);
+    const c = state.cards.get(uid);
+    const who = b.side === 0 ? '我方' : '电脑';
+    if (d.maxOnField) { toast(`${d.name}一次只能有一个，不能批量出`); return; }
+    if (d.playerOnly && b.side !== 0) { toast(`${d.name}只能我方使用`); return; }
+    const now = performance.now();
+    if (b.count >= BIG_BATCH && !(b.pendingUid === uid && now < b.pendingT)) {
+      b.pendingUid = uid;
+      b.pendingT = now + BATCH_CONFIRM_MS;
+      c.card.classList.add('pending');
+      setTimeout(() => c.card.classList.remove('pending'), BATCH_CONFIRM_MS);
+      updateBatchBar();
+      return;
+    }
+    b.pendingUid = null;
+    const n = eng.massSpawn(b.side, uid, b.count);
+    flash(c.card, 'flash');
+    toast(`${who}批量出兵 ${fmtCount(n)} 个${d.name}` + (n > Engine.BATCH_MAX ? `，${fmtCount(Engine.BATCH_MAX)} 个先上场，其余待命` : ''));
+    updateBatchBar();
+  }
+  function updateBatchBar() {
+    const bar = $('batchbar');
+    const b = state.batch;
+    if (!b) {
+      bar.classList.add('hidden');
+      return;
+    }
+    bar.classList.remove('hidden');
+    const who = b.side === 0 ? '我方' : '电脑';
+    const waiting = !!b.pendingUid && performance.now() < b.pendingT;
+    if (waiting) {
+      const d = ALL.find((x) => x.id === b.pendingUid);
+      $('batch-text').textContent = `再点一次「${d.name}」确认：${who} ×${fmtCount(b.count)}`;
+    } else {
+      b.pendingUid = null;
+      $('batch-text').textContent = `批量出兵 · ${who} ×${fmtCount(b.count)} · 点下方兵种出兵`;
+    }
+    bar.classList.toggle('pending', waiting);
   }
 
   function toast(text) {
@@ -4567,12 +4756,13 @@ window.HD_SHEETS = {
   function updateRoster() {
     const eng = state.eng;
     const S = eng ? eng.sides[0] : null;
+    const batch = !!state.batch;    // 批量出兵不看金币、人口和冷却，卡片全亮、不画冷却遮罩
     for (const c of state.cards.values()) {
       const d = c.def;
       // 作弊“出兵无冷却”开着时不画冷却遮罩（canSpawn 也忽略冷却，按钮是亮的）
-      const left = S && !(eng && eng.cheats.noCd) ? S.cdLeft[d.id] || 0 : 0;
+      const left = batch || !S || eng.cheats.noCd ? 0 : S.cdLeft[d.id] || 0;
       c.cd.style.height = `${Math.round((left / d.cooldown) * 100)}%`;
-      const ok = eng ? eng.canSpawn(0, d.id) === 'ok' : false;
+      const ok = batch ? true : eng ? eng.canSpawn(0, d.id) === 'ok' : false;
       if (c.ok !== ok) {
         c.ok = ok;
         c.card.classList.toggle('no', !ok);
@@ -4591,14 +4781,20 @@ window.HD_SHEETS = {
     const eng = state.eng;
     if (!eng) return;
     const S = eng.sides[0];
+    const cap = eng.supplyCap();
     setText('gold', String(Math.floor(S.gold)));
     const mimics = eng.count(0, 'mimic');
-    // 与引擎的收入公式一致：收入 × 阵营收入倍率 + 贪婪宝箱，再乘作弊的收入倍率
-    setText('income', `+${Math.round((R.economy.income * S.incomeMul + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
-    setText('pop', eng.cheats.noSupply ? `人口 ${S.supplyUsed}/∞` : `人口 ${S.supplyUsed}/${R.economy.supplyCap}`);
+    // 与引擎的收入一致：基础收入（随时间涨）+ 贪婪宝箱，再乘作弊的收入倍率
+    setText('income', `+${Math.round((eng.baseIncome(0) + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
+    setText('pop', eng.cheats.noSupply ? `人口 ${S.supplyUsed}/∞` : `人口 ${S.supplyUsed}/${cap}`);
+    const popFrac = eng.cheats.noSupply ? 0 : Math.min(1, S.supplyUsed / cap);
+    $('pop-fill').style.width = `${Math.round(popFrac * 100)}%`;
+    $('pop-fill').classList.toggle('warn', popFrac > 0.9);
     setText('clock', fmtTime(eng.time));
     const alive = eng.stat ? eng.stat.alive : [0, 0];
-    setText('field', `在场：我方 ${alive[0]} / 电脑 ${alive[1]}`);
+    const wait = [eng.queued(0), eng.queued(1)];
+    setText('alive-me', `在场 ${alive[0]}${wait[0] ? ` · 待命 ${fmtCount(wait[0])}` : ''}`);
+    setText('alive-foe', `在场 ${alive[1]}${wait[1] ? ` · 待命 ${fmtCount(wait[1])}` : ''}`);
     for (let s = 0; s < 2; s++) {
       const c = eng.crystals[s];
       const id = s === 0 ? 'hp-me' : 'hp-foe';
@@ -4667,7 +4863,7 @@ window.HD_SHEETS = {
       const k = e.deltaMode === 1 ? 16 : 1;
       const dx = e.deltaX * k, dy = e.deltaY * k;
       if (Math.abs(dx) > Math.abs(dy)) {
-        rv.moveCam(dx, 0);       // 横向滚动：镜头左右移
+        rv.moveCam(-dx, 0);      // 横向滚动：和拖动同一个方向（触控板两指右滑，画面往左走）
       } else {
         const r = cv.getBoundingClientRect();
         rv.zoomAt(e.clientX - r.left, e.clientY - r.top, rv.cam.zoom * Math.exp(-dy * 0.0015));
@@ -4712,6 +4908,7 @@ window.HD_SHEETS = {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
       // 带 Ctrl / Cmd / Alt 的组合键留给浏览器（刷新、打印、标签页、缩放等），游戏不处理
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Escape' && state.batch) { disarmBatch(); return; }
       const low = normKey(e);
       if (PAN.has(low)) { e.preventDefault(); state.panKeys.add(low); return; }
       // 缩放键按物理键位记录：+ 和 = 是同一个键，松开时 e.key 可能已经变了
@@ -4722,7 +4919,7 @@ window.HD_SHEETS = {
       if (low === 'z') { toggleSpeed(); return; }
       const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const i = KEYS.indexOf(k);
-      if (i >= 0 && i < ALL.length) { spawn(ALL[i].id); return; }
+      if (i >= 0 && i < ALL.length) { pick(ALL[i].id); return; }
       if (window.GameUI.onKey) window.GameUI.onKey(k, e);
     });
     window.addEventListener('keyup', (e) => {
@@ -4759,6 +4956,7 @@ window.HD_SHEETS = {
     state.endAt = 0;
     state.renderer.resetCam();
     state.renderer.popups = [];
+    disarmBatch();
     hudCache = {};
     if (window.GameUI.onNewGame) window.GameUI.onNewGame(eng);
     $('ov-start').classList.add('hidden');
@@ -4801,6 +4999,7 @@ window.HD_SHEETS = {
     });
     $('btn-start').addEventListener('click', newGame);
     $('btn-again').addEventListener('click', newGame);
+    $('batch-cancel').addEventListener('click', disarmBatch);
     $('btn-menu').addEventListener('click', showStart);
     $('btn-pause').addEventListener('click', togglePause);
     $('btn-resume').addEventListener('click', togglePause);
@@ -4827,6 +5026,8 @@ window.HD_SHEETS = {
       updateRoster();
       if (window.GameUI.onFrame) window.GameUI.onFrame(eng);
       rv.drawMinimap($('minimap'), eng);
+      // 连点确认的等待时间到了，提示条恢复成普通文字
+      if (state.batch && state.batch.pendingUid && performance.now() >= state.batch.pendingT) updateBatchBar();
       if (eng.ended && state.endAt && now >= state.endAt) {
         state.endAt = 0;
         state.running = false;
@@ -4860,7 +5061,7 @@ window.HD_SHEETS = {
   }
 
   // 给作弊菜单和撒旦技能栏（cheat-ui.js）用的接口
-  window.GameUI = { state, toast, setSpeed, flash, onKey: null, onNewGame: null, onFrame: null };
+  window.GameUI = { state, toast, setSpeed, flash, armBatch, fmtCount, onKey: null, onNewGame: null, onFrame: null };
 
   init();
 })();
@@ -4882,6 +5083,7 @@ window.HD_SHEETS = {
     infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false,
     incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
     crystalMax: [R.map.crystalHp, R.map.crystalHp],
+    batch: { side: 0, count: 100 },      // 批量出兵的阵营和数量（ui.js 的 armBatch）
   };
 
   const eng = () => G.state.eng;
@@ -4941,6 +5143,7 @@ window.HD_SHEETS = {
     hint.className = 'hint';
     hint.textContent = '单机游戏，哥哥说了算。按 C 打开或关闭。这里的设置会一直保留到下一局。';
     box.appendChild(hint);
+    batchBox(box);
 
     for (const sec of SECTIONS) {
       const fs = document.createElement('fieldset');
@@ -4971,6 +5174,40 @@ window.HD_SHEETS = {
       }
       box.appendChild(fs);
     }
+  }
+
+  // 批量出兵：点“关闭菜单，选兵种出兵”后面板收起，之后点下方兵种就批量出（ui.js 的 armBatch / batchPick）
+  function batchBox(box) {
+    const fs = document.createElement('fieldset');
+    const lg = document.createElement('legend');
+    lg.textContent = '批量出兵';
+    fs.appendChild(lg);
+    const r1 = document.createElement('div');
+    r1.className = 'row';
+    r1.innerHTML = '<span>阵营</span>';
+    r1.appendChild(chip('我方', cfg.batch.side === 0, () => { cfg.batch.side = 0; }));
+    r1.appendChild(chip('电脑', cfg.batch.side === 1, () => { cfg.batch.side = 1; }));
+    fs.appendChild(r1);
+    const r2 = document.createElement('div');
+    r2.className = 'row';
+    r2.innerHTML = '<span>数量</span>';
+    for (const n of [100, 1000, 10000, 100000]) {
+      r2.appendChild(chip(G.fmtCount(n), cfg.batch.count === n, () => { cfg.batch.count = n; }));
+    }
+    fs.appendChild(r2);
+    const r3 = document.createElement('div');
+    r3.className = 'row';
+    r3.appendChild(chip('关闭菜单，选兵种出兵', false, () => {
+      G.armBatch(cfg.batch.side, cfg.batch.count);
+      if (G.state.batch) $('cheat').classList.add('hidden');
+    }, 'go'));
+    fs.appendChild(r3);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。一次最多 2000 个直接上场，' +
+      '超出的进待命队列，场上同一兵种少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
+    fs.appendChild(hint);
+    box.appendChild(fs);
   }
 
   function crystalRows(fs, side) {
@@ -5033,7 +5270,7 @@ window.HD_SHEETS = {
     const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
     S.gold += SATAN.cost;
     S.cdLeft.satan = 0;
-    S.supplyUsed = Math.min(S.supplyUsed, R.economy.supplyCap - SATAN.supply);
+    S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
     const why = e.canSpawn(0, 'satan');
     if (why === 'ok') {
       e.spawn(0, 'satan');

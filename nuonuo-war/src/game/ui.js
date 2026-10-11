@@ -21,6 +21,9 @@
   };
   const PAN_SPEED = 900;        // 键盘平移：屏幕像素每秒
   const ZOOM_RATE = 1.2;        // 按住缩放键时，每秒的对数缩放量
+  const TAP_SLOP = 10;          // 出兵栏：手指移动超过这么多像素就不算点按（是划动，不出兵）
+  const BIG_BATCH = 1000;       // 批量出兵达到这个数量，要连点两次同一个兵种才出，防止误触
+  const BATCH_CONFIRM_MS = 3000; // 连点确认的等待时间
   // 键盘平移的镜头方向。W 留给 Q–P 出兵（第 12 个兵种），上移用方向键
   const PAN = new Map([
     ['ArrowLeft', [-1, 0]], ['a', [-1, 0]], ['ArrowRight', [1, 0]], ['d', [1, 0]],
@@ -45,6 +48,7 @@
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
   const normKey = (e) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
+  const fmtCount = (n) => (n >= 1e4 ? `${+(n / 1e4).toFixed(1)} 万` : String(n));
 
   const state = {
     eng: null,
@@ -60,6 +64,7 @@
     toastT: 0,
     panKeys: new Set(),
     zoomKeys: new Set(),
+    batch: null,        // 批量出兵模式：{ side, count, pendingUid, pendingT }，由作弊菜单打开
   };
 
   // ---------- 出兵栏 ----------
@@ -71,13 +76,15 @@
       card.dataset.uid = d.id;
       card.style.setProperty('--tier', TIER_COLOR[d.tier] || '#888');
       card.appendChild(el('span', 'key', KEYS[i]));
+      const wrap = el('div', 'av-wrap');
       const av = el('canvas', 'av');
       av.width = 48;
       av.height = 48;
-      card.appendChild(av);
+      wrap.appendChild(av);
+      card.appendChild(wrap);
       card.appendChild(el('div', 'nm', d.name));
       const cost = el('div', 'cost');
-      cost.innerHTML = `<b>${d.cost}</b> · 人口${d.supply}`;
+      cost.innerHTML = `<i class="coin"></i><b>${d.cost}</b><span>人口${d.supply}</span>`;
       card.appendChild(cost);
       const cd = el('div', 'cd');
       card.appendChild(cd);
@@ -85,6 +92,7 @@
       state.cards.set(d.id, { card, av, cd, cost, def: d, drawn: false });
 
       card.addEventListener('pointerdown', (e) => onCardDown(e, d.id));
+      card.addEventListener('pointermove', onCardMove);
       card.addEventListener('pointerup', (e) => onCardUp(e, d.id));
       card.addEventListener('pointercancel', onCardCancel);
       card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hideTip(); });
@@ -92,31 +100,51 @@
     });
   }
 
+  // 出兵栏的点按只认“轻点”：手指按下后移动超过 TAP_SLOP 像素就是划动（横向滚动出兵栏），不出兵；
+  // 按住超过 420 毫秒只弹出简介，松手也不出兵。误触来自划动和长按，这两种都不出兵。
+  let press = null;
   let pressTimer = 0;
-  let pressFired = false;
   function onCardDown(e, uid) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    pressFired = false;
+    press = { id: e.pointerId, uid, x: e.clientX, y: e.clientY, moved: false, long: false };
+    // 按住期间的移动都送到这张卡上，松手时才知道手指有没有离开
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* 不支持就算了，靠移动距离判断 */ }
     clearTimeout(pressTimer);
     pressTimer = setTimeout(() => {
-      pressFired = true;
+      if (!press || press.moved) return;
+      press.long = true;
       showTip(uid, state.cards.get(uid).card);
     }, 420);
   }
+  function onCardMove(e) {
+    if (!press || e.pointerId !== press.id || press.moved) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP) {
+      press.moved = true;
+      clearTimeout(pressTimer);
+    }
+  }
   function onCardUp(e, uid) {
     clearTimeout(pressTimer);
-    if (pressFired) {
+    const p = press;
+    press = null;
+    if (!p || p.moved || p.uid !== uid) return;
+    if (p.long) {
       if (e.pointerType !== 'mouse') hideTip();
-      pressFired = false;
       return;
     }
-    spawn(uid);
+    pick(uid);
   }
   // 手指在出兵栏横滑（pointercancel）：取消长按计时器，不然之后还会弹出简介且没有松手来收起
   function onCardCancel() {
     clearTimeout(pressTimer);
-    pressFired = false;
+    press = null;
     hideTip();
+  }
+
+  // 点兵种（卡片或数字键）：平时出一个；批量出兵模式下是批量出兵
+  function pick(uid) {
+    if (state.batch) batchPick(uid);
+    else spawn(uid);
   }
 
   // 出兵：成功闪绿，失败提示原因并闪红
@@ -139,6 +167,63 @@
     void card.offsetWidth;
     card.classList.add(cls);
     setTimeout(() => card.classList.remove(cls), 220);
+  }
+
+  // ---------- 批量出兵（作弊菜单打开，见 cheat-ui.js） ----------
+  // 进入后顶部出现提示条，点下方兵种就按设定的数量批量出兵，不扣金币、人口和冷却。
+  // 数量 ≥ 1000 时要连点两次同一个兵种确认，防止误触出一大片。按 Esc 或提示条上的“取消”退出
+  function armBatch(side, count) {
+    const eng = state.eng;
+    if (!eng || !state.running || eng.ended) { toast('先开始一局'); return; }
+    state.batch = { side, count, pendingUid: null, pendingT: 0 };
+    updateBatchBar();
+  }
+  function disarmBatch() {
+    state.batch = null;
+    updateBatchBar();
+  }
+  function batchPick(uid) {
+    const b = state.batch;
+    const eng = state.eng;
+    if (!b || !eng || !state.running || state.paused || eng.ended) return;
+    const d = ALL.find((x) => x.id === uid);
+    const c = state.cards.get(uid);
+    const who = b.side === 0 ? '我方' : '电脑';
+    if (d.maxOnField) { toast(`${d.name}一次只能有一个，不能批量出`); return; }
+    if (d.playerOnly && b.side !== 0) { toast(`${d.name}只能我方使用`); return; }
+    const now = performance.now();
+    if (b.count >= BIG_BATCH && !(b.pendingUid === uid && now < b.pendingT)) {
+      b.pendingUid = uid;
+      b.pendingT = now + BATCH_CONFIRM_MS;
+      c.card.classList.add('pending');
+      setTimeout(() => c.card.classList.remove('pending'), BATCH_CONFIRM_MS);
+      updateBatchBar();
+      return;
+    }
+    b.pendingUid = null;
+    const n = eng.massSpawn(b.side, uid, b.count);
+    flash(c.card, 'flash');
+    toast(`${who}批量出兵 ${fmtCount(n)} 个${d.name}` + (n > Engine.BATCH_MAX ? `，${fmtCount(Engine.BATCH_MAX)} 个先上场，其余待命` : ''));
+    updateBatchBar();
+  }
+  function updateBatchBar() {
+    const bar = $('batchbar');
+    const b = state.batch;
+    if (!b) {
+      bar.classList.add('hidden');
+      return;
+    }
+    bar.classList.remove('hidden');
+    const who = b.side === 0 ? '我方' : '电脑';
+    const waiting = !!b.pendingUid && performance.now() < b.pendingT;
+    if (waiting) {
+      const d = ALL.find((x) => x.id === b.pendingUid);
+      $('batch-text').textContent = `再点一次「${d.name}」确认：${who} ×${fmtCount(b.count)}`;
+    } else {
+      b.pendingUid = null;
+      $('batch-text').textContent = `批量出兵 · ${who} ×${fmtCount(b.count)} · 点下方兵种出兵`;
+    }
+    bar.classList.toggle('pending', waiting);
   }
 
   function toast(text) {
@@ -215,12 +300,13 @@
   function updateRoster() {
     const eng = state.eng;
     const S = eng ? eng.sides[0] : null;
+    const batch = !!state.batch;    // 批量出兵不看金币、人口和冷却，卡片全亮、不画冷却遮罩
     for (const c of state.cards.values()) {
       const d = c.def;
       // 作弊“出兵无冷却”开着时不画冷却遮罩（canSpawn 也忽略冷却，按钮是亮的）
-      const left = S && !(eng && eng.cheats.noCd) ? S.cdLeft[d.id] || 0 : 0;
+      const left = batch || !S || eng.cheats.noCd ? 0 : S.cdLeft[d.id] || 0;
       c.cd.style.height = `${Math.round((left / d.cooldown) * 100)}%`;
-      const ok = eng ? eng.canSpawn(0, d.id) === 'ok' : false;
+      const ok = batch ? true : eng ? eng.canSpawn(0, d.id) === 'ok' : false;
       if (c.ok !== ok) {
         c.ok = ok;
         c.card.classList.toggle('no', !ok);
@@ -239,14 +325,20 @@
     const eng = state.eng;
     if (!eng) return;
     const S = eng.sides[0];
+    const cap = eng.supplyCap();
     setText('gold', String(Math.floor(S.gold)));
     const mimics = eng.count(0, 'mimic');
-    // 与引擎的收入公式一致：收入 × 阵营收入倍率 + 贪婪宝箱，再乘作弊的收入倍率
-    setText('income', `+${Math.round((R.economy.income * S.incomeMul + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
-    setText('pop', eng.cheats.noSupply ? `人口 ${S.supplyUsed}/∞` : `人口 ${S.supplyUsed}/${R.economy.supplyCap}`);
+    // 与引擎的收入一致：基础收入（随时间涨）+ 贪婪宝箱，再乘作弊的收入倍率
+    setText('income', `+${Math.round((eng.baseIncome(0) + 3 * mimics) * eng.cheats.incomeMul[0])}/秒`);
+    setText('pop', eng.cheats.noSupply ? `人口 ${S.supplyUsed}/∞` : `人口 ${S.supplyUsed}/${cap}`);
+    const popFrac = eng.cheats.noSupply ? 0 : Math.min(1, S.supplyUsed / cap);
+    $('pop-fill').style.width = `${Math.round(popFrac * 100)}%`;
+    $('pop-fill').classList.toggle('warn', popFrac > 0.9);
     setText('clock', fmtTime(eng.time));
     const alive = eng.stat ? eng.stat.alive : [0, 0];
-    setText('field', `在场：我方 ${alive[0]} / 电脑 ${alive[1]}`);
+    const wait = [eng.queued(0), eng.queued(1)];
+    setText('alive-me', `在场 ${alive[0]}${wait[0] ? ` · 待命 ${fmtCount(wait[0])}` : ''}`);
+    setText('alive-foe', `在场 ${alive[1]}${wait[1] ? ` · 待命 ${fmtCount(wait[1])}` : ''}`);
     for (let s = 0; s < 2; s++) {
       const c = eng.crystals[s];
       const id = s === 0 ? 'hp-me' : 'hp-foe';
@@ -315,7 +407,7 @@
       const k = e.deltaMode === 1 ? 16 : 1;
       const dx = e.deltaX * k, dy = e.deltaY * k;
       if (Math.abs(dx) > Math.abs(dy)) {
-        rv.moveCam(dx, 0);       // 横向滚动：镜头左右移
+        rv.moveCam(-dx, 0);      // 横向滚动：和拖动同一个方向（触控板两指右滑，画面往左走）
       } else {
         const r = cv.getBoundingClientRect();
         rv.zoomAt(e.clientX - r.left, e.clientY - r.top, rv.cam.zoom * Math.exp(-dy * 0.0015));
@@ -360,6 +452,7 @@
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
       // 带 Ctrl / Cmd / Alt 的组合键留给浏览器（刷新、打印、标签页、缩放等），游戏不处理
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Escape' && state.batch) { disarmBatch(); return; }
       const low = normKey(e);
       if (PAN.has(low)) { e.preventDefault(); state.panKeys.add(low); return; }
       // 缩放键按物理键位记录：+ 和 = 是同一个键，松开时 e.key 可能已经变了
@@ -370,7 +463,7 @@
       if (low === 'z') { toggleSpeed(); return; }
       const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const i = KEYS.indexOf(k);
-      if (i >= 0 && i < ALL.length) { spawn(ALL[i].id); return; }
+      if (i >= 0 && i < ALL.length) { pick(ALL[i].id); return; }
       if (window.GameUI.onKey) window.GameUI.onKey(k, e);
     });
     window.addEventListener('keyup', (e) => {
@@ -407,6 +500,7 @@
     state.endAt = 0;
     state.renderer.resetCam();
     state.renderer.popups = [];
+    disarmBatch();
     hudCache = {};
     if (window.GameUI.onNewGame) window.GameUI.onNewGame(eng);
     $('ov-start').classList.add('hidden');
@@ -449,6 +543,7 @@
     });
     $('btn-start').addEventListener('click', newGame);
     $('btn-again').addEventListener('click', newGame);
+    $('batch-cancel').addEventListener('click', disarmBatch);
     $('btn-menu').addEventListener('click', showStart);
     $('btn-pause').addEventListener('click', togglePause);
     $('btn-resume').addEventListener('click', togglePause);
@@ -475,6 +570,8 @@
       updateRoster();
       if (window.GameUI.onFrame) window.GameUI.onFrame(eng);
       rv.drawMinimap($('minimap'), eng);
+      // 连点确认的等待时间到了，提示条恢复成普通文字
+      if (state.batch && state.batch.pendingUid && performance.now() >= state.batch.pendingT) updateBatchBar();
       if (eng.ended && state.endAt && now >= state.endAt) {
         state.endAt = 0;
         state.running = false;
@@ -508,7 +605,7 @@
   }
 
   // 给作弊菜单和撒旦技能栏（cheat-ui.js）用的接口
-  window.GameUI = { state, toast, setSpeed, flash, onKey: null, onNewGame: null, onFrame: null };
+  window.GameUI = { state, toast, setSpeed, flash, armBatch, fmtCount, onKey: null, onNewGame: null, onFrame: null };
 
   init();
 })();

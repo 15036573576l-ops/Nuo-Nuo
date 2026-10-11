@@ -12,6 +12,7 @@
     infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false,
     incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
     crystalMax: [R.map.crystalHp, R.map.crystalHp],
+    batch: { side: 0, count: 100 },      // 批量出兵的阵营和数量（ui.js 的 armBatch）
   };
 
   const eng = () => G.state.eng;
@@ -71,6 +72,7 @@
     hint.className = 'hint';
     hint.textContent = '单机游戏，哥哥说了算。按 C 打开或关闭。这里的设置会一直保留到下一局。';
     box.appendChild(hint);
+    batchBox(box);
 
     for (const sec of SECTIONS) {
       const fs = document.createElement('fieldset');
@@ -101,6 +103,40 @@
       }
       box.appendChild(fs);
     }
+  }
+
+  // 批量出兵：点“关闭菜单，选兵种出兵”后面板收起，之后点下方兵种就批量出（ui.js 的 armBatch / batchPick）
+  function batchBox(box) {
+    const fs = document.createElement('fieldset');
+    const lg = document.createElement('legend');
+    lg.textContent = '批量出兵';
+    fs.appendChild(lg);
+    const r1 = document.createElement('div');
+    r1.className = 'row';
+    r1.innerHTML = '<span>阵营</span>';
+    r1.appendChild(chip('我方', cfg.batch.side === 0, () => { cfg.batch.side = 0; }));
+    r1.appendChild(chip('电脑', cfg.batch.side === 1, () => { cfg.batch.side = 1; }));
+    fs.appendChild(r1);
+    const r2 = document.createElement('div');
+    r2.className = 'row';
+    r2.innerHTML = '<span>数量</span>';
+    for (const n of [100, 1000, 10000, 100000]) {
+      r2.appendChild(chip(G.fmtCount(n), cfg.batch.count === n, () => { cfg.batch.count = n; }));
+    }
+    fs.appendChild(r2);
+    const r3 = document.createElement('div');
+    r3.className = 'row';
+    r3.appendChild(chip('关闭菜单，选兵种出兵', false, () => {
+      G.armBatch(cfg.batch.side, cfg.batch.count);
+      if (G.state.batch) $('cheat').classList.add('hidden');
+    }, 'go'));
+    fs.appendChild(r3);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。一次最多 2000 个直接上场，' +
+      '超出的进待命队列，场上同一兵种少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
+    fs.appendChild(hint);
+    box.appendChild(fs);
   }
 
   function crystalRows(fs, side) {
@@ -163,7 +199,7 @@
     const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
     S.gold += SATAN.cost;
     S.cdLeft.satan = 0;
-    S.supplyUsed = Math.min(S.supplyUsed, R.economy.supplyCap - SATAN.supply);
+    S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
     const why = e.canSpawn(0, 'satan');
     if (why === 'ok') {
       e.spawn(0, 'satan');

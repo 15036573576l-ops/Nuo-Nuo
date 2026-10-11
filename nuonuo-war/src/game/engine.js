@@ -10,7 +10,14 @@
   const MAX_R = 40;         // 单位半径上限，查询范围要多留这一截
   const REACH = 4;          // 攻击距离的余量（中心到中心）
   const RETARGET = 0.25;    // 追击目标的重新计算间隔（秒）
-  const GROUP_GAP = 22;     // 同一组单位在出兵点附近的错开间距
+  const GROUP_GAP_X = 26;   // 同一组单位往后排的间距
+  const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
+  const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
+  const MASS_DEPTH = 3000;  // 批量出兵：横向最多排多深，人再多就挤紧
+  const BATCH_MAX = 2000;   // 批量出兵：同一兵种一次直接上场的上限；超出的进待命队列，场上这个兵种少了再陆续补进来
+  const ENTER_PER_STEP = 60; // 待命队列每步最多进场的个数（陆续进场，不是一下子涌进来）
+  const BUDGET_MS = 24;     // 一帧里逻辑最多占用的毫秒数，超了就停，欠的时间留到下一帧（慢放，不卡死）
+  const ACC_MAX = 0.25;     // 欠的模拟时间上限（秒）：卡顿之后不快进补回来
 
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -143,6 +150,7 @@
       this.stat = { alive: [0, 0], swing: [0, 0] };
       this.rangedBy = [[], []];
       this.pairBuf = [];        // 分离推挤用的重叠对缓冲区（复用，避免每步分配）
+      this.queues = [];         // 批量出兵的待命队列：{ side, uid, left }
     }
 
     // ---------- 事件与特效（给渲染和界面用） ----------
@@ -266,6 +274,14 @@
     }
 
     // ---------- 出兵 ----------
+    // 基础收入（每秒，不含宝箱和作弊倍率）：随对局时间线性涨，不封顶
+    baseIncome(side) {
+      return (R.economy.incomeBase + R.economy.incomeGrowth * this.time) * this.sides[side].incomeMul;
+    }
+    // 人口上限：随对局时间线性涨，不封顶（作弊的“无限人口”另算）
+    supplyCap() {
+      return Math.floor(R.economy.supplyBase + R.economy.supplyGrowth * this.time);
+    }
     canSpawn(side, uid) {
       const d = C.BY_ID[uid];
       const S = this.sides[side];
@@ -275,7 +291,7 @@
       const ch = side === 0 ? this.cheats : null;
       if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
-      if (S.supplyUsed + d.supply > R.economy.supplyCap && !(ch && ch.noSupply)) return 'supply';
+      if (S.supplyUsed + d.supply > this.supplyCap() && !(ch && ch.noSupply)) return 'supply';
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
       return 'ok';
     }
@@ -294,15 +310,76 @@
       for (let i = 0; i < d.count; i++) {
         const row = Math.floor(i / cols), col = i % cols;
         this.addUnit(side, d, {
-          x: fp.x + back * row * GROUP_GAP,
-          y: fp.y + (col - (cols - 1) / 2) * GROUP_GAP,
+          x: fp.x + back * row * GROUP_GAP_X,
+          y: fp.y + (col - (cols - 1) / 2) * GROUP_GAP_Y,
           group,
         });
       }
       this.emit({ t: 'spawn', side, uid });
       return true;
     }
-    // 出兵点：自家水晶内侧 spawnDepth 的纵深，y 以 h/2 为中心展开 spawnSpread
+    // 批量出兵（作弊）：不扣金币、人口、冷却，一次出 n 个单独的单位（不是“组”）。
+    // 最多直接上场 BATCH_MAX 个：纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
+    // 超出的进待命队列（见 enterQueues），场上同一兵种少了再陆续进场，不会一次算几十万个单位卡死。
+    // 批量单位不占人口、不计入 spawned，不影响电脑的出兵比例。撒旦这类一次只能有一个的不批量。返回总个数
+    massSpawn(side, uid, n) {
+      const d = C.BY_ID[uid];
+      if (!d || this.ended || !(n > 0)) return 0;
+      if (d.playerOnly && side !== 0) return 0;
+      if (d.maxOnField) return 0;
+      const now = Math.min(n, BATCH_MAX);
+      const M = R.map;
+      const band = M.spawnSpread;
+      const y0 = M.h / 2 - band / 2;
+      const rows = Math.max(1, Math.min(now, Math.floor(band / MASS_GAP)));
+      const cols = Math.ceil(now / rows);
+      const gx = Math.min(MASS_GAP, MASS_DEPTH / cols);
+      const x0 = this.batchFront(side);
+      const dir = side === 0 ? 1 : -1;
+      for (let i = 0; i < now; i++) {
+        const row = i % rows, col = Math.floor(i / rows);
+        this.addUnit(side, d, {
+          x: x0 + dir * col * gx + (this.rng() - 0.5) * 6,
+          y: y0 + (row + 0.5) * (band / rows) + (this.rng() - 0.5) * 6,
+        });
+      }
+      if (n > now) this.queues.push({ side, uid, left: n - now });
+      return n;
+    }
+    // 批量出兵的起点：自家水晶前沿（和正常出兵的纵深起点一样）
+    batchFront(side) {
+      const M = R.map;
+      return side === 0 ? M.inset + M.crystalRadius + 60 : M.w - (M.inset + M.crystalRadius + 60);
+    }
+    // 待命队列：每步把队列里的单位放进出兵带（随机落点，一批批涌上来）。同一兵种场上不超过 BATCH_MAX
+    enterQueues() {
+      for (const q of this.queues) {
+        const room = BATCH_MAX - this.count(q.side, q.uid);
+        const k = Math.min(q.left, Math.max(0, room), ENTER_PER_STEP);
+        if (k <= 0) continue;
+        const d = C.BY_ID[q.uid];
+        const M = R.map;
+        const band = M.spawnSpread;
+        const y0 = M.h / 2 - band / 2;
+        const x0 = this.batchFront(q.side);
+        const dir = q.side === 0 ? 1 : -1;
+        for (let i = 0; i < k; i++) {
+          this.addUnit(q.side, d, {
+            x: x0 + dir * this.rng() * 600,
+            y: y0 + this.rng() * band,
+          });
+        }
+        q.left -= k;
+      }
+      this.queues = this.queues.filter((q) => q.left > 0);
+    }
+    // 待命队列里还有多少个没上场（一方的合计）
+    queued(side) {
+      let n = 0;
+      for (const q of this.queues) if (q.side === side) n += q.left;
+      return n;
+    }
+    // 出兵点：自家水晶内侧 spawnDepth 的纵深，y 以 h/2 为中心铺开 spawnSpread（整条出兵带）
     formationPoint(side) {
       const M = R.map;
       const along = M.inset + M.crystalRadius + 60 + this.rng() * M.spawnDepth;
@@ -621,17 +698,20 @@
     }
 
     // ---------- 主循环 ----------
-    // 真实时间 → 固定步长：每帧最多 12 步，防止卡顿时螺旋
+    // 真实时间 → 固定步长：每帧最多 12 步，并且不超过 BUDGET_MS 毫秒。单位很多时一帧算不完，
+    // 就停在这里、欠的时间留到下一帧（游戏变慢，界面不会被卡死）；欠得太多的部分直接丢掉，不快进
     update(realDt) {
       if (this.ended) return;
       this.acc += Math.min(0.1, realDt) * this.speed;
+      const t0 = Date.now();
       let n = 0;
       while (this.acc >= DT && n < 12 && !this.ended) {
         this.step(DT);
         this.acc -= DT;
         n++;
+        if (Date.now() - t0 > BUDGET_MS) break;
       }
-      if (n >= 12) this.acc = 0;
+      if (this.acc > ACC_MAX) this.acc = ACC_MAX;
     }
 
     step(dt) {
@@ -645,11 +725,13 @@
         const S = this.sides[s];
         let mimics = 0;
         for (const u of this.units) if (u.side === s && u.uid === 'mimic' && this.alive(u)) mimics++;
-        S.gold += (R.economy.income * S.incomeMul + 3 * mimics) * this.cheats.incomeMul[s] * dt;
+        S.gold += (this.baseIncome(s) + 3 * mimics) * this.cheats.incomeMul[s] * dt;
         if (s === 0 && this.cheats.infiniteGold) S.gold = Math.max(S.gold, 999999);
         for (const k of Object.keys(S.cdLeft)) S.cdLeft[k] = Math.max(0, S.cdLeft[k] - dt);
         for (let i = 0; i < 3; i++) S.manualCd[i] = this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
       }
+
+      if (this.queues.length) this.enterQueues();
 
       for (const u of this.units.slice()) {
         if (u.dead) continue;
@@ -762,6 +844,7 @@
     wipe(side) {
       for (const u of this.units.slice()) if (u.side === side) this.removeUnit(u);
       this.bodies = this.bodies.filter((b) => b.side !== side);
+      this.queues = this.queues.filter((q) => q.side !== side);
     }
 
     // 胜负：一方水晶归零就结束，另一方获胜；双方水晶在同一步归零判平局（winner = 'draw'）
@@ -777,5 +860,6 @@
 
   Engine.DT = DT;
   Engine.Grid = Grid;
+  Engine.BATCH_MAX = BATCH_MAX;
   window.Engine = Engine;
 })();

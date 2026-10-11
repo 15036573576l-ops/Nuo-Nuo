@@ -10,10 +10,9 @@
   const MW = R.map.w, MH = R.map.h;
 
   const K = 0.6;                    // 地面压扁系数
-  const ZOOM_MIN = 0.22, ZOOM_MAX = 1.8, ZOOM_INIT = 0.7;
-  const LOD_ZOOM = 0.5;             // 低于它时单位画成阵营色圆点
-  const SPRITE_BUDGET = 900;        // 视野内最多画这么多个精灵，其余画成圆点
-  const BODY_BUDGET = 400;          // 尸体的精灵上限，超出的同样画成圆点
+  // 缩远能看到整张地图；默认比原来小一半多，兵不会一上来就很大。缩远时单位照常画精灵，不再变成圆点
+  const ZOOM_MIN = 0.12, ZOOM_MAX = 1.8, ZOOM_INIT = 0.45;
+  const DETAIL_ZOOM = 0.3;          // 低于它时省掉角标、蓄力条、冰圈这些小细节（精灵本身照常画）
   const MANUAL_PAUSE = 3;           // 手动操作后暂停跟随的秒数
   const FOLLOW_RATE = 2.5;          // 跟随时镜头追赶跟随目标的速度（每秒比例）
   const FOCUS_RATE = 0.8;           // 跟随目标本身的平滑速度（每秒比例）：单位进出战斗时目标不跳变
@@ -279,8 +278,8 @@
       this.markManual();
       this.clamp();
     }
-    // 拖动：内容跟着指针走
-    dragCam(dx, dy) { this.moveCam(-dx, -dy); }
+    // 拖动：镜头跟着手指走，所以手指往右，镜头往右，画面往左走（和 v1 的手感一样）
+    dragCam(dx, dy) { this.moveCam(dx, dy); }
     // 以屏幕上某点为中心缩放，那一点下面的世界位置保持不动
     zoomAt(px, py, zoom) {
       const c = this.cam;
@@ -377,7 +376,7 @@
       ents.sort((a, b) => a.y - b.y);
       for (const it of ents) {
         if (it.k === 1) this.drawCrystal(it.o, it.sx, it.sy);
-        else this.drawUnit(it.o, it.sx, it.sy, it.gy, it.sp);
+        else this.drawUnit(it.o, it.sx, it.sy, it.gy);
       }
       this.drawProjectiles(eng);
       this.drawFx(eng);
@@ -427,56 +426,27 @@
       );
     }
 
-    // 找出视野内要画的东西：单位和水晶进入排序列表；缩远或超出预算的单位只画圆点
+    // 找出视野内要画的东西：单位和水晶进入排序列表，尸体单独一份。视野外的剔掉，视野内的全部画精灵
     collect(eng) {
       const z = this.cam.zoom, w = this.w, h = this.h;
-      const cx0 = w / 2, cy0 = h / 2;
-      const lod = z < LOD_ZOOM;
       const ents = [];
-      const near = [];
       for (const c of eng.crystals) {
         const gx = this.sx(c.x), gy = this.sy(c.y);
-        ents.push({ k: 1, o: c, y: c.y, sx: gx, sy: gy, gy, sp: true });
+        ents.push({ k: 1, o: c, y: c.y, sx: gx, sy: gy, gy });
       }
       for (const u of eng.units) {
         const gx = this.sx(u.x), gy = this.sy(u.y);
         const py = gy - (u.flying ? FLY_LIFT * z : 0);
         if (gx < -CULL || gx > w + CULL || py < -CULL || py > h + CULL) continue;
-        const it = { k: 0, o: u, y: u.y, sx: gx, sy: py, gy, sp: false, d: (gx - cx0) ** 2 + (py - cy0) ** 2 };
-        ents.push(it);
-        near.push(it);
-      }
-      if (!lod) {
-        // 离镜头中心近的优先画精灵
-        if (near.length > SPRITE_BUDGET) near.sort((a, b) => a.d - b.d);
-        const n = Math.min(SPRITE_BUDGET, near.length);
-        for (let i = 0; i < n; i++) near[i].sp = true;
+        ents.push({ k: 0, o: u, y: u.y, sx: gx, sy: py, gy });
       }
       const bodies = [];
-      let bodySprites = 0;
       for (const b of eng.bodies) {
         const gx = this.sx(b.x), gy = this.sy(b.y);
         if (gx < -CULL || gx > w + CULL || gy < -CULL || gy > h + CULL) continue;
-        const sp = !lod && bodySprites < BODY_BUDGET;
-        if (sp) bodySprites++;
-        bodies.push({ b, sx: gx, sy: gy, sp });
+        bodies.push({ b, sx: gx, sy: gy });
       }
       return { ents, bodies };
-    }
-
-    // 单位的圆点（LOD 和超出预算时用）
-    dot(x, y, side, alpha) {
-      const ctx = this.ctx;
-      const r = 2 + Math.min(2, this.cam.zoom * 2);
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = SIDE_COLOR[side];
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.stroke();
-      ctx.globalAlpha = 1;
     }
 
     drawCrystal(c, cx, base) {
@@ -593,25 +563,17 @@
       const left = b.life - b.age;
       const alpha = Math.max(0, Math.min(1, left / (b.corpse ? 1.5 : 0.4)));
       if (alpha <= 0) return;
-      if (!it.sp) {
-        this.dot(it.sx, it.sy, b.side, alpha * 0.6);
-        return;
-      }
-      const sh = SH[b.sheet];
-      if (!sh) return;
+      if (!SH[b.sheet]) return;
       const S = z * 1.3 * (b.small ? 0.7 : 1) * (b.scale || 1);
       SR.drawHero(ctx, { sheet: b.sheet, aspd: 1 }, 'death', b.age, it.sx, it.sy, S, b.side === 0 ? 1 : -1, { alpha });
     }
 
-    // 单位：sp 为 false 时画成圆点（缩远、超出预算）
-    drawUnit(u, px, py, gy, sp) {
-      if (!sp) {
-        this.dot(px, py, u.side, u.bones ? 0.45 : 1);
-        return;
-      }
+    // 单位：精灵照常画。缩远时（DETAIL_ZOOM 以下）省掉角标、蓄力条、冰圈、尘土这些小细节
+    drawUnit(u, px, py, gy) {
       const sh = SH[u.sheet];
       if (!sh) return;
       const ctx = this.ctx, z = this.cam.zoom;
+      const detail = z >= DETAIL_ZOOM;
       const S = z * 1.3 * (u.small ? 0.7 : 1) * (u.def.scale || 1);
       // 地面阴影（飞行单位的影子留在地上）。精灵自己的影子关掉，只画这一处
       if (!u.burrowed) {
@@ -636,27 +598,29 @@
 
       const top = py - sh.bodyH * S - 8 * z;
       // 冻结：脚下冰圈
-      if (C.has(u, 'frozen')) {
+      if (detail && C.has(u, 'frozen')) {
         ctx.strokeStyle = 'rgba(159,232,255,0.8)';
         ctx.lineWidth = 2;
         ellipse(ctx, px, gy, sh.bodyW * S * 0.6, 4 * z);
         ctx.stroke();
       }
-      // 血条
-      const bw = Math.max(24, sh.bodyW * S * 1.05), bh = 4 * z;
+      // 血条：近看时全部画；缩远时只画受伤的（满血的一排血条叠在一起会变成一片色块，盖住精灵）
+      const bw = Math.max(24, sh.bodyW * S * 1.05), bh = Math.max(2, 4 * z);
       const bx = px - bw / 2, by = top - bh;
       const frac = Math.max(0, Math.min(1, u.hp / u.maxHp));
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-      ctx.fillStyle = SIDE_COLOR[u.side];
-      ctx.fillRect(bx, by, bw * frac, bh);
+      if (detail || frac < 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+        ctx.fillStyle = SIDE_COLOR[u.side];
+        ctx.fillRect(bx, by, bw * frac, bh);
+      }
       const shield = u.st.holyShield;
       if (shield && shield.absorb > 0) {
         ctx.fillStyle = 'rgba(255,227,138,0.9)';
         ctx.fillRect(bx, by - 3 * z, Math.min(bw, bw * shield.absorb / 200), 2 * z);
       }
       // 状态角标
-      const badges = BADGES.filter(([id]) => C.has(u, id));
+      const badges = detail ? BADGES.filter(([id]) => C.has(u, id)) : [];
       if (badges.length) {
         const bs = Math.max(10, 13 * z);
         const total = badges.length * (bs + 2);
@@ -673,7 +637,7 @@
         }
       }
       // 蓄力条（居合、冰封）
-      if (u.cast) {
+      if (detail && u.cast) {
         const k = Math.min(1, u.cast.t / u.cast.dur);
         const cw = 56 * z, chh = 4 * z;
         ctx.fillStyle = 'rgba(0,0,0,0.6)';

@@ -101,8 +101,9 @@
         totalUnits += S.spawned[d.id] || 0;
       }
       const mimics = eng.count(side, 'mimic');
-      const income = R.economy.income * S.incomeMul;
-      const crowd = S.supplyUsed / R.economy.supplyCap;
+      const income = eng.baseIncome(side);            // 收入和人口上限都随时间涨，每次决策现算
+      const cap = eng.supplyCap();
+      const crowd = S.supplyUsed / cap;
       const TIERS = ['T3', 'T2', 'T1', 'T0.5', 'T0'];
       // 敌人离我方水晶多近：用来判断“告急”（平原版：到我方水晶圆心的距离，1100 像素以内算告急）
       const own = eng.crystals[side];
@@ -161,10 +162,13 @@
       // 钱差一点就攒：平时等 40 秒以内（覆盖 T0 的 420–480 金），告急时只等 10 秒
       if (why === 'gold' && S.gold + income * (danger ? 10 : 40) >= top.cost) return;
       // 人口差一点：等前线死人腾人口，不用便宜兵把人口塞满（告急时不等）
-      if (!danger && why === 'supply' && top.supply <= R.economy.supplyCap * 0.4) return;
+      if (!danger && why === 'supply' && top.supply <= cap * 0.4) return;
       // 退而求其次只在分数接近第一名的兵种里挑；差太多就攒钱。
       // 告急时放宽到 2 分，但不再“什么便宜买什么”——以前守家时会刷出几百只灰鼠群
-      const floor = order[0].s - (danger ? 2.0 : 1.0);
+      // 富余时（金币够买 3 个第一名）不卡分数下限：第一名在冷却中，就买能买的最高分兵种，不让金币堆着
+      // （收入随时间涨之后，只按分数挑会攒到几万金币，见 docs/QUESTIONS.md 第 43 条）
+      const rich = S.gold >= 3 * top.cost;
+      const floor = rich ? -Infinity : order[0].s - (danger ? 2.0 : 1.0);
       for (const { def, s } of order.concat(order === scored ? [] : scored)) {
         if (s < floor) break;
         if (eng.canSpawn(side, def.id) === 'ok') {

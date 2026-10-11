@@ -5,155 +5,192 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>糯糯战记</title>
 <style>
+  /* 配色：浅色毛玻璃，底下是草地。蓝 = 我方，珊瑚 = 电脑，金 = 金币 */
   :root {
-    --bg: #0d1224;
-    --panel: #171d33;
-    --panel-2: #222a47;
-    --line: #34405f;
-    --text: #eef2ff;
-    --muted: #9aa5c4;
-    --gold: #ffd166;
-    --me: #3ea6ff;
-    --foe: #ff5a5a;
-    --ok: #8ee39b;
-    --no: #7a8199;
-  }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) { --bg: #0d1224; }
+    --ink: #1d2b3a;
+    --ink-2: #5b6b7c;
+    --glass: rgba(255, 255, 255, 0.86);
+    --glass-strong: rgba(255, 255, 255, 0.96);
+    --line: rgba(29, 43, 58, 0.10);
+    --me: #2b8df0;
+    --me-2: #5cc5ff;
+    --foe: #f0506e;
+    --foe-2: #ff8f7a;
+    --gold: #f5a524;
+    --gold-2: #ffd45c;
+    --mint: #2fbf8f;
+    --shadow: 0 8px 24px rgba(20, 48, 32, 0.18);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
-  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; height: 100%; background: linear-gradient(#bfe6ff, #e8f6df); color: var(--ink); }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   button { font: inherit; color: inherit; cursor: pointer; }
   #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
-  /* 顶部 HUD */
-  #hud { display: grid; grid-template-columns: 1fr minmax(180px, 320px) 1fr; align-items: center; gap: 10px; padding: 6px 12px; background: linear-gradient(#141a2f, #10152a); border-bottom: 1px solid var(--line); min-height: 52px; }
-  .hp { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .hp .tag { font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .hp .bar { position: relative; flex: 1; height: 12px; background: #000a; border: 1px solid #0008; border-radius: 6px; overflow: hidden; }
-  .hp .fill { position: absolute; inset: 0 auto 0 0; width: 100%; transition: width .2s; }
-  .hp .num { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; color: var(--text); }
-  .hp.me .fill { background: linear-gradient(90deg, #2a7fd6, var(--me)); }
-  .hp.foe { flex-direction: row-reverse; }
-  .hp.foe .fill { background: linear-gradient(270deg, #c93a3a, var(--foe)); right: 0; left: auto; }
-  #center { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
-  #econ { display: flex; gap: 14px; align-items: baseline; font-size: 14px; white-space: nowrap; }
-  #gold { color: var(--gold); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
-  #income { font-size: 12px; color: var(--muted); }
-  #pop { font-variant-numeric: tabular-nums; }
-  #field { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  /* 小地图：画在战场左下角，完整地图的比例 2.5 : 1 */
-  #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 4; width: 200px; height: 80px; border: 1px solid var(--line); border-radius: 6px; background: #0a0e1c; display: block; cursor: pointer; touch-action: none; box-shadow: 0 4px 14px #0008; }
-  /* 镜头按钮：画布右侧居中 */
-  #camctl { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-  #camctl .cbtn { width: 40px; height: 40px; border-radius: 10px; background: #171d33e0; border: 1px solid var(--line); font-size: 20px; line-height: 1; }
-  #camctl .cbtn.wide { width: auto; height: auto; padding: 6px 10px; font-size: 12px; }
-  #camctl .cbtn.on { border-color: var(--gold); color: var(--gold); }
-  #right { position: absolute; right: 10px; top: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
-  #clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 46px; text-align: right; }
-  .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
-  .btn:active { transform: translateY(1px); }
-  .btn.primary { background: linear-gradient(#ffd166, #e9a93b); color: #2b1d05; border: none; font-weight: 800; padding: 10px 22px; font-size: 16px; }
-  .btn.ghost { background: transparent; }
+  /* 顶部：两个水晶血条居两侧，中间是金币、收入和人口，最右是时间和按钮 */
+  #hud { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 7px 14px; min-height: 52px; position: relative; z-index: 3; background: linear-gradient(rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.82)); box-shadow: 0 2px 14px rgba(20, 48, 32, 0.16); }
+  .side { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .side .line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .side.foe .line { justify-content: flex-end; }
+  .side .num { font-size: 16px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .side .tag { font-weight: 600; }
+  .side .alive { font-variant-numeric: tabular-nums; }
+  .side .bar { position: relative; height: 9px; border-radius: 99px; background: rgba(29, 43, 58, 0.10); overflow: hidden; }
+  .side .fill { position: absolute; inset: 0 auto 0 0; width: 100%; border-radius: 99px; transition: width 0.25s ease-out; }
+  #hp-me { background: linear-gradient(90deg, var(--me-2), var(--me)); }
+  #hp-foe { background: linear-gradient(270deg, var(--foe-2), var(--foe)); left: auto; right: 0; }
+  #center { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 200px; }
+  .econ { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .coin { display: inline-block; flex: none; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff8d6, var(--gold-2) 45%, var(--gold) 82%); box-shadow: inset 0 -2px 0 rgba(150, 90, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.15); }
+  #gold { font-size: 19px; font-weight: 800; color: #b96f00; font-variant-numeric: tabular-nums; }
+  #income { font-size: 11px; font-weight: 700; color: #1f9d6f; background: rgba(47, 191, 143, 0.14); padding: 1px 8px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+  .pop { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .popbar { width: 130px; height: 5px; border-radius: 99px; background: rgba(29, 43, 58, 0.10); overflow: hidden; }
+  #pop-fill { height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, #8ee6c2, var(--mint)); transition: width 0.25s; }
+  #pop-fill.warn { background: linear-gradient(90deg, #ffd17a, var(--gold)); }
+  #ctl { display: flex; align-items: center; gap: 6px; }
+  #clock { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+  .pill { height: 28px; min-width: 36px; padding: 0 11px; border: none; border-radius: 99px; background: rgba(29, 43, 58, 0.07); color: var(--ink); font-size: 12px; font-weight: 600; }
+  .pill:active { transform: scale(0.96); }
+  .pill.cheat { background: linear-gradient(135deg, #ffb27a, #ff7a6b); color: #fff; }
 
-  /* 战场 */
-  #stage { position: relative; flex: 1; min-height: 0; }
+  /* 战场：画布铺满，上面叠暗角和几个浮层 */
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
   #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
   #cv:active { cursor: grabbing; }
-  #toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: #000c; color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+  #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 42%, rgba(0, 0, 0, 0) 58%, rgba(10, 36, 20, 0.34) 100%); }
+  #toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 8; background: rgba(29, 43, 58, 0.88); color: #fff; padding: 7px 16px; border-radius: 99px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; box-shadow: var(--shadow); }
   #toast.show { opacity: 1; }
+  /* 小地图：左下角，完整地图的比例 2.5 : 1 */
+  #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 4; width: 180px; height: 70px; border-radius: 12px; border: 3px solid rgba(255, 255, 255, 0.92); box-shadow: var(--shadow); background: #2c4a2b; display: block; cursor: pointer; touch-action: none; }
+  /* 镜头按钮：右侧居中 */
+  #camctl { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #camctl .cbtn { width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--glass-strong); color: var(--ink); font-size: 22px; line-height: 1; box-shadow: var(--shadow); }
+  #camctl .cbtn.wide { width: auto; height: 32px; padding: 0 14px; border-radius: 99px; font-size: 12px; font-weight: 700; }
+  #camctl .cbtn.on { background: linear-gradient(135deg, var(--gold-2), var(--gold)); color: #3a2300; }
+  /* 批量出兵提示条：顶部居中 */
+  #batchbar { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 10px; background: var(--glass-strong); color: var(--ink); padding: 5px 5px 5px 16px; border-radius: 99px; box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
+  #batchbar.hidden { display: none; }
+  #batchbar.pending { background: linear-gradient(135deg, #ffe08a, #ffc04d); }
+  #batch-text { font-weight: 700; }
+  #batch-cancel { border: none; height: 28px; padding: 0 12px; border-radius: 99px; background: rgba(240, 80, 110, 0.14); color: #c92c4b; font-size: 12px; font-weight: 800; }
 
-  /* 出兵栏 */
-  #roster { display: flex; gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); overflow-x: auto; overscroll-behavior-x: contain; background: #0f1426; border-top: 1px solid var(--line); scrollbar-width: thin; }
-  .card { position: relative; flex: 0 0 74px; height: 98px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--tier, #888); border-radius: 8px; padding: 4px 2px 3px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; overflow: hidden; touch-action: manipulation; transition: transform .08s; }
-  .card:active { transform: scale(.97); }
-  .card canvas.av { width: 48px; height: 48px; image-rendering: pixelated; }
-  .card .nm { font-size: 12px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70px; }
-  .card .cost { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .card .cost b { color: var(--gold); }
-  .card .key { position: absolute; left: 3px; top: 3px; font-size: 10px; background: #000a; border-radius: 4px; padding: 0 4px; color: #cdd6f4; }
-  .card .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,.55); pointer-events: none; transition: height .1s linear; }
-  .card.no { color: var(--no); }
-  .card.no canvas.av { opacity: .45; }
-  .card.no .cost b { color: #8d7a4a; }
-  .card.flash { box-shadow: 0 0 0 2px var(--ok) inset; }
-  .card.bad { box-shadow: 0 0 0 2px var(--foe) inset; }
-  .sep { flex: 0 0 4px; }
-  .card.evil { border-color: #7a1f1f; border-top-color: #ff3b2e; background: linear-gradient(#3a0d0d, #1a0707); box-shadow: 0 0 12px #ff3b2e55 inset; }
-  .card.evil .nm { color: #ff9a7a; font-weight: 800; }
+  /* 出兵栏：白色圆角卡片，顶部一条兵种色，买不起的变灰 */
+  #roster { display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); overflow-x: auto; overscroll-behavior-x: contain; background: linear-gradient(rgba(255, 255, 255, 0.92), rgba(244, 249, 241, 0.97)); box-shadow: 0 -4px 16px rgba(20, 48, 32, 0.12); scrollbar-width: thin; }
+  .card { position: relative; flex: 0 0 66px; height: 84px; border-radius: 16px; background: #fff; box-shadow: 0 2px 6px rgba(20, 48, 32, 0.12); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 7px 3px 5px; overflow: hidden; touch-action: manipulation; transition: transform 0.1s ease, box-shadow 0.15s; }
+  .card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--tier, #9aa4b8); }
+  .card:active { transform: scale(0.94); }
+  .card .key { position: absolute; left: 6px; top: 9px; font-size: 10px; font-weight: 700; color: var(--ink-2); }
+  .card .av-wrap { width: 46px; height: 40px; margin-top: 4px; border-radius: 14px; display: grid; place-items: center; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--tier, #9aa4b8) 24%, #fff) 0%, #f2f6f0 78%); }
+  .card canvas.av { width: 40px; height: 40px; image-rendering: pixelated; }
+  .card .nm { max-width: 62px; font-size: 11px; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .cost { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .card .cost .coin { width: 9px; height: 9px; }
+  .card .cost b { font-size: 11px; color: #b96f00; }
+  .card .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(29, 43, 58, 0.42); pointer-events: none; transition: height 0.1s linear; }
+  .card.no canvas.av { opacity: 0.42; filter: grayscale(0.6); }
+  .card.no .nm { color: #98a2ae; }
+  .card.no .cost b { color: #b7a27a; }
+  .card.flash { box-shadow: 0 0 0 2px var(--mint) inset, 0 2px 6px rgba(20, 48, 32, 0.12); }
+  .card.bad { box-shadow: 0 0 0 2px var(--foe) inset, 0 2px 6px rgba(20, 48, 32, 0.12); }
+  .card.pending { box-shadow: 0 0 0 3px var(--gold) inset, 0 0 14px rgba(245, 165, 36, 0.6); }
+  .card.evil { background: linear-gradient(180deg, #4a1218, #1c0708); }
+  .card.evil::before { background: #ff4d3d; }
+  .card.evil .key { color: #ffb8a4; }
+  .card.evil .nm { color: #ffb8a4; }
+  .card.evil .cost span { color: #f2c6b8; }
+  .card.evil .cost b { color: #ffd45c; }
+  .card.evil .av-wrap { background: radial-gradient(circle at 50% 35%, #7a1f24, #2a0a0c 80%); }
+  .card.evil .cd { background: rgba(0, 0, 0, 0.5); }
 
-  /* 撒旦技能栏 */
+  /* 撒旦技能栏：右下角，撒旦在场时才显示 */
   #satanbar { position: absolute; right: 12px; bottom: 12px; z-index: 6; display: flex; gap: 10px; }
   #satanbar.hidden { display: none; }
-  .sk-btn { position: relative; width: 66px; height: 66px; border-radius: 50%; border: 2px solid var(--c, #ff7a3d); background: radial-gradient(circle at 50% 35%, #3a1010, #120404); color: #fff; font-size: 12px; font-weight: 800; line-height: 1.15; padding: 0 6px; overflow: hidden; box-shadow: 0 0 14px color-mix(in srgb, var(--c) 60%, transparent); }
-  .sk-btn .k { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #ffd7c2; font-weight: 400; }
-  .sk-btn .cdm { position: absolute; inset: 0; background: conic-gradient(rgba(0,0,0,.72) var(--p, 0%), transparent 0); pointer-events: none; }
+  .sk-btn { position: relative; width: 62px; height: 62px; border-radius: 50%; border: 3px solid var(--c, #ff7a3d); background: radial-gradient(circle at 50% 35%, #4a1414, #140505); color: #fff; font-size: 12px; font-weight: 800; line-height: 1.15; padding: 0 6px; overflow: hidden; box-shadow: 0 6px 16px rgba(20, 10, 10, 0.35), 0 0 16px color-mix(in srgb, var(--c) 55%, transparent); }
+  .sk-btn .k { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #ffd7c2; font-weight: 400; }
+  .sk-btn .cdm { position: absolute; inset: 0; background: conic-gradient(rgba(0, 0, 0, 0.72) var(--p, 0%), transparent 0); pointer-events: none; }
   .sk-btn .cdn { position: absolute; inset: 0; display: grid; place-items: center; font-size: 18px; pointer-events: none; text-shadow: 0 1px 3px #000; }
-  .sk-btn:active { transform: scale(.95); }
+  .sk-btn:active { transform: scale(0.95); }
 
-  /* 作弊菜单 */
-  #cheat { position: absolute; top: 0; right: 0; bottom: 0; z-index: 25; width: min(380px, 100%); background: #0b0f1ef5; border-left: 1px solid var(--line); overflow-y: auto; padding: 12px 14px 20px; font-size: 13px; box-shadow: -12px 0 30px #0008; }
+  /* 作弊菜单：右侧滑出的白色面板 */
+  #cheat { position: absolute; top: 0; right: 0; bottom: 0; z-index: 25; width: min(380px, 100%); background: var(--glass-strong); color: var(--ink); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 22px; font-size: 13px; box-shadow: -12px 0 30px rgba(20, 48, 32, 0.18); -webkit-overflow-scrolling: touch; }
   #cheat.hidden { display: none; }
-  #cheat h2 { margin: 0 0 2px; font-size: 18px; color: #ff9a7a; display: flex; justify-content: space-between; align-items: center; }
-  #cheat .hint { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
-  #cheat fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; padding: 6px 10px 10px; }
-  #cheat legend { color: var(--gold); padding: 0 4px; font-size: 12px; }
-  #cheat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
-  #cheat .row > span { color: var(--muted); min-width: 64px; }
-  #cheat .chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 4px 10px; font-size: 12px; }
-  #cheat .chip.on { background: #5a1b14; border-color: #ff7a5a; color: #ffd7c9; }
-  #cheat input[type=number] { width: 120px; background: #000a; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
-  #cheat .danger { background: #6a1010; border-color: #ff5a5a; }
+  #cheat h2 { margin: 0 0 4px; font-size: 18px; color: #d9480f; display: flex; justify-content: space-between; align-items: center; }
+  #cheat .hint { color: var(--ink-2); font-size: 12px; margin: 0 0 8px; line-height: 1.55; }
+  #cheat fieldset { border: 1px solid var(--line); border-radius: 14px; margin: 10px 0; padding: 6px 12px 12px; background: rgba(244, 249, 241, 0.7); }
+  #cheat legend { color: #b96f00; padding: 0 6px; font-size: 12px; font-weight: 700; }
+  #cheat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; }
+  #cheat .row > span { color: var(--ink-2); min-width: 60px; font-size: 12px; }
+  #cheat .chip { background: #fff; border: 1px solid var(--line); border-radius: 99px; padding: 5px 11px; font-size: 12px; color: var(--ink); }
+  #cheat .chip.on { background: #ffe3c7; border-color: #f08c42; color: #7a3a0c; font-weight: 700; }
+  #cheat .chip.go { background: linear-gradient(135deg, var(--me), var(--mint)); border: none; color: #fff; font-weight: 700; padding: 8px 14px; }
+  #cheat .chip.danger { background: #ffe3e3; border-color: #ff8a8a; color: #b02a2a; }
+  #cheat input[type=number] { width: 120px; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px; font: inherit; font-variant-numeric: tabular-nums; }
 
-  /* 悬浮简介 */
-  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); background: #0c1020f2; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 8px 24px #0009; }
+  /* 兵种简介浮窗 */
+  #tip { position: absolute; z-index: 20; max-width: min(340px, calc(100vw - 20px)); background: rgba(255, 255, 255, 0.97); color: var(--ink); border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.55; pointer-events: none; display: none; box-shadow: 0 10px 28px rgba(20, 48, 32, 0.22); }
   #tip h3 { margin: 0 0 2px; font-size: 16px; }
-  #tip h3 small { color: var(--muted); font-size: 12px; font-weight: 400; }
-  #tip .meta { color: var(--muted); font-size: 12px; }
-  #tip .sk { color: #ffe9b0; }
-  #tip .lore { color: var(--muted); font-style: italic; margin: 4px 0 0; }
+  #tip h3 small { color: var(--ink-2); font-size: 12px; font-weight: 500; }
+  #tip .meta { color: var(--ink-2); font-size: 12px; }
+  #tip .sk { color: #b06a00; font-weight: 700; }
+  #tip .lore { color: var(--ink-2); font-style: italic; margin: 4px 0 0; }
   #tip ul { margin: 2px 0; padding-left: 16px; }
 
-  /* 覆盖层 */
-  .overlay { position: absolute; inset: 0; z-index: 30; background: #050813d9; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  /* 开局 / 暂停 / 结束：毛玻璃蒙层 + 白色面板 */
+  .overlay { position: absolute; inset: 0; z-index: 30; background: rgba(226, 244, 234, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 16px; }
   .overlay.hidden { display: none; }
-  .panel { width: min(520px, 100%); max-height: 100%; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; box-shadow: 0 16px 48px #000a; }
-  .panel h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: 2px; background: linear-gradient(90deg, #ffe9a8, #ffb36b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .panel { width: min(520px, 100%); max-height: 100%; overflow-y: auto; background: var(--glass-strong); color: var(--ink); border-radius: 24px; padding: 22px 24px; box-shadow: 0 24px 60px rgba(20, 48, 32, 0.25); }
+  .panel h1 { margin: 0 0 4px; font-size: 34px; font-weight: 900; letter-spacing: 3px; background: linear-gradient(90deg, var(--me), var(--mint)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .panel h2 { margin: 0 0 10px; font-size: 22px; }
-  .panel p { margin: 6px 0; color: #d7dcef; line-height: 1.6; font-size: 14px; }
-  .panel .muted { color: var(--muted); font-size: 13px; }
-  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 16px; }
-  .levels button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px; text-align: center; }
+  .panel p { margin: 6px 0; color: #34475a; line-height: 1.65; font-size: 14px; }
+  .panel .muted { color: var(--ink-2); font-size: 13px; }
+  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 16px; }
+  .levels button { background: #f4f8f2; border: 2px solid transparent; border-radius: 16px; padding: 12px 6px; text-align: center; color: var(--ink); }
   .levels button b { display: block; font-size: 16px; }
-  .levels button small { color: var(--muted); font-size: 11px; }
-  .levels button.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; justify-content: flex-end; }
+  .levels button small { display: block; margin-top: 2px; color: var(--ink-2); font-size: 11px; line-height: 1.4; }
+  .levels button.on { border-color: var(--me); background: #eaf4ff; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; justify-content: flex-end; }
+  .btn { background: #eef3f7; border: none; border-radius: 12px; padding: 8px 14px; font-size: 13px; color: var(--ink); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: linear-gradient(135deg, var(--me), var(--mint)); color: #fff; font-weight: 800; padding: 11px 26px; font-size: 16px; box-shadow: 0 8px 18px rgba(43, 141, 240, 0.35); }
   table.stats { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; font-variant-numeric: tabular-nums; }
-  table.stats th, table.stats td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+  table.stats th, table.stats td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; }
   table.stats th:first-child, table.stats td:first-child { text-align: left; }
-  .win { color: var(--ok); }
-  .lose { color: var(--foe); }
-  .draw { color: var(--gold); }
-  #rotate { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg); align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; }
+  .win { color: #1f9d6f; }
+  .lose { color: #d6334f; }
+  .draw { color: #b96f00; }
+  #rotate { display: none; position: fixed; inset: 0; z-index: 99; background: linear-gradient(#bfe6ff, #e8f6df); align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; line-height: 1.8; }
   @media (orientation: portrait) and (max-width: 900px) { #rotate { display: flex; } }
+
+  /* 窄屏（横屏小手机）：顶部改两行，卡片、镜头按钮都小一点 */
   @media (max-width: 700px) {
-    #hud { grid-template-columns: 1fr 1fr; gap: 6px; }
+    #hud { grid-template-columns: 1fr 1fr; gap: 6px 10px; }
     #center { grid-column: 1 / -1; order: -1; }
-    #econ { font-size: 13px; gap: 10px; }
     #gold { font-size: 16px; }
-    #right { gap: 6px; }
-    .btn { padding: 4px 9px; font-size: 12px; }
-    .card { flex-basis: 66px; height: 90px; }
+    .popbar { width: 100px; }
+    .card { flex-basis: 60px; height: 78px; }
     #minimap { left: 8px; bottom: 8px; width: 140px; height: 56px; }
-    #camctl { right: 8px; gap: 4px; }
-    #camctl .cbtn { width: 36px; height: 36px; font-size: 18px; }
+    #camctl { right: 8px; gap: 6px; }
+    #camctl .cbtn { width: 36px; height: 36px; font-size: 20px; }
   }
-  /* 矮的屏幕（手机横屏）：技能栏缩小，镜头按钮往上挪，撒旦在场时两者不重叠 */
+  /* 矮的屏幕（手机横屏）：顶部和出兵栏收紧，留给战场更多高度；撒旦在场时技能栏和镜头按钮不重叠 */
   @media (max-height: 500px) {
+    #hud { min-height: 44px; padding: 4px 12px; }
+    .card { height: 76px; }
+    .card .av-wrap { width: 40px; height: 34px; margin-top: 2px; }
+    .card canvas.av { width: 32px; height: 32px; }
+    .panel { padding: 14px 18px; border-radius: 18px; }
+    .panel h1 { font-size: 26px; margin-bottom: 0; }
+    .panel p { font-size: 12px; line-height: 1.5; margin: 4px 0; }
+    .levels { margin: 8px 0 10px; gap: 8px; }
+    .levels button { padding: 7px 4px; }
+    .levels button b { font-size: 14px; }
+    .levels button small { font-size: 10.5px; }
+    .actions { margin-top: 10px; }
+    .tall-only { display: none; }
     #satanbar { right: 8px; bottom: 8px; gap: 8px; }
-    .sk-btn { width: 50px; height: 50px; font-size: 11px; }
-    #camctl { top: 42%; right: 8px; gap: 4px; }
+    .sk-btn { width: 52px; height: 52px; font-size: 11px; }
+    #camctl { top: 42%; right: 8px; gap: 6px; }
     #camctl .cbtn { width: 34px; height: 34px; font-size: 18px; }
   }
 </style>
@@ -161,27 +198,35 @@
 <body>
 <div id="app">
   <header id="hud">
-    <div class="hp me"><span class="tag">我方水晶</span><div class="bar"><div class="fill" id="hp-me"></div></div><span class="num" id="hp-me-n">4000</span></div>
-    <div id="center">
-      <div id="econ"><span id="gold">300</span><span id="income">+25/秒</span><span id="pop">人口 0/120</span></div>
-      <div id="field">在场：我方 0 / 电脑 0</div>
+    <div class="side me">
+      <div class="line"><span class="tag">我方水晶</span><span class="num" id="hp-me-n">6000</span><span class="alive" id="alive-me">在场 0</span></div>
+      <div class="bar"><div class="fill" id="hp-me"></div></div>
     </div>
-    <div class="hp foe"><span class="tag">电脑水晶</span><div class="bar"><div class="fill" id="hp-foe"></div></div><span class="num" id="hp-foe-n">4000</span></div>
+    <div id="center">
+      <div class="econ"><i class="coin"></i><b id="gold">300</b><span id="income">+10/秒</span></div>
+      <div class="pop"><span id="pop">人口 0/40</span><div class="popbar"><div id="pop-fill"></div></div></div>
+    </div>
+    <div class="side foe">
+      <div class="line"><span class="alive" id="alive-foe">在场 0</span><span class="num" id="hp-foe-n">6000</span><span class="tag">电脑水晶</span></div>
+      <div class="bar"><div class="fill" id="hp-foe"></div></div>
+    </div>
+    <div id="ctl">
+      <span id="clock">00:00</span>
+      <button class="pill" id="btn-speed" title="切换 1 倍速 / 2 倍速（Z）">1×</button>
+      <button class="pill" id="btn-pause" title="暂停（空格）">暂停</button>
+      <button class="pill cheat" id="btn-cheat" title="作弊菜单（C）">作弊</button>
+    </div>
   </header>
   <main id="stage">
     <canvas id="cv"></canvas>
+    <div id="vignette"></div>
     <canvas id="minimap" title="小地图：点击或拖动跳转"></canvas>
     <div id="camctl">
       <button class="btn cbtn" id="btn-zin" title="放大（]）">+</button>
       <button class="btn cbtn" id="btn-zout" title="缩小（[）">−</button>
       <button class="btn cbtn wide" id="btn-follow" title="镜头跟随战斗中心；手动操作后暂停 3 秒">跟随战斗</button>
     </div>
-    <div id="right">
-      <span id="clock">00:00</span>
-      <button class="btn" id="btn-speed" title="切换 1 倍速 / 2 倍速（Z）">1×</button>
-      <button class="btn" id="btn-pause" title="暂停（空格）">暂停</button>
-      <button class="btn" id="btn-cheat" title="作弊菜单（C）">作弊</button>
-    </div>
+    <div id="batchbar" class="hidden"><span id="batch-text"></span><button id="batch-cancel" title="退出批量出兵（Esc）">取消</button></div>
     <div id="toast"></div>
     <div id="satanbar" class="hidden"></div>
     <aside id="cheat" class="hidden" aria-label="作弊菜单"></aside>
@@ -193,14 +238,15 @@
     <div class="panel">
       <h1>糯糯战记</h1>
       <p class="muted">单机平原对战。花金币出兵，兵会自己往前走、遇到敌人就打；先打爆对方水晶的一方获胜。</p>
+      <p class="muted tall-only">金币和人口上限都会随时间越涨越多，前期抠一点，后期才放得开。</p>
       <p class="muted">选择电脑难度</p>
       <div class="levels" id="levels">
         <button data-level="easy"><b>简单</b><small>电脑收入 ×0.8，出兵随意</small></button>
-        <button data-level="normal" class="on"><b>普通</b><small>会克制你的兵种</small></button>
+        <button data-level="normal" class="on"><b>普通</b><small>会针对玩家的兵种</small></button>
         <button data-level="hard"><b>困难</b><small>收入 ×1.15，会抢经济、攒钱大招</small></button>
       </div>
-      <p>出兵：点击下方兵种，或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦（只有你能用）。长按（或鼠标悬停）看兵种简介。</p>
-      <p>镜头：拖动或双指捏合，滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b> 放手动技能，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
+      <p>出兵：轻点下方兵种（划动和长按不出兵），或按键盘 <b>1–0</b>、<b>Q–P</b>；<b>X</b> 召唤撒旦（只有玩家能用）。长按兵种看简介。</p>
+      <p>镜头：拖动或双指捏合，手指往右拖，画面往左走；滚轮或 <b>[ ]</b> 缩放，方向键或 <b>A S D</b> 移动，点小地图跳转。撒旦在场时 <b>J K L</b> 放手动技能，<b>C</b> 打开作弊菜单。空格暂停，<b>Z</b> 切换 2 倍速。</p>
       <div class="actions"><button class="btn primary" id="btn-start">开始对战</button></div>
     </div>
   </section>

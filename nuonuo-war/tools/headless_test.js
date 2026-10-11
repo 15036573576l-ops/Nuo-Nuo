@@ -1,5 +1,6 @@
 // 糯糯战记 · 无头测试（node tools/headless_test.js）
-// 1. 机制断言：伤害倍率、状态、元素反应、骨堆、索敌、分离推挤、越界、飞行与巨像穿行、水晶易伤、撒旦、作弊默认关闭
+// 1. 机制断言：伤害倍率、状态、元素反应、骨堆、索敌、分离推挤、越界、飞行与巨像穿行、水晶易伤、撒旦、作弊默认关闭，
+//    经济和人口上限随时间涨、出兵带铺开、批量出兵、帧推进
 // 2. 技能定点场景：12 个主动技能，外加撒旦三个手动技能
 // 3. 规模压力：200 对 200、1000 个单位同屏，每步平均耗时（只跑逻辑，不渲染）
 // 4. AI 对 AI：默认 20 局（环境变量 GAMES 可改），不渲染；统计时长、在场峰值、胜负、超时、NaN、灰鼠群占比、雷克斯出场
@@ -389,6 +390,79 @@ console.log('机制断言');
   check('作弊默认全部关闭', off);
   eng.setCrystal(1, 500, 6000);
   check('作弊：水晶血量和上限可设', eng.crystals[1].hp === 500 && eng.crystals[1].maxHp === 6000);
+}
+
+// 经济随时间涨、人口上限随时间涨、出兵带铺开、批量出兵（平原版新增）
+{
+  const eng = new Engine({ seed: 90 });
+  check('开局金币 300，基础收入 10/秒', eng.sides[0].gold === R.economy.startGold && Math.abs(eng.baseIncome(0) - R.economy.incomeBase) < 1e-9);
+  // 前 60 秒不花钱：金币 = 300 + ∫(10 + 0.4t)dt = 300 + 600 + 0.2×60²，前期比原来的 25/秒（1500）少
+  step(eng, 60 / DT);
+  const want = R.economy.startGold + R.economy.incomeBase * 60 + R.economy.incomeGrowth * 60 * 60 / 2;
+  check('前 60 秒金币按 基础 + 增长 积分', Math.abs(eng.sides[0].gold - want) < 1, `${eng.sides[0].gold.toFixed(1)} vs ${want}`);
+}
+{
+  const eng = new Engine({ seed: 91 });
+  const c0 = eng.supplyCap();
+  eng.time = 600;
+  const c1 = eng.supplyCap();
+  check('人口上限随时间涨（开局 40，10 分钟后 520），不封顶', c0 === R.economy.supplyBase && c1 === Math.floor(R.economy.supplyBase + R.economy.supplyGrowth * 600), `${c0} → ${c1}`);
+  eng.time = 0;
+  eng.sides[0].supplyUsed = c0;
+  const blocked = eng.canSpawn(0, 'rat') === 'supply';
+  eng.time = 600;
+  check('人口满了，随时间涨上来后就能出兵', blocked && eng.canSpawn(0, 'rat') === 'ok', eng.canSpawn(0, 'rat'));
+}
+{
+  const eng = new Engine({ seed: 92 });
+  eng.time = 600;
+  check('基础收入随时间涨（600 秒时 250/秒）', Math.abs(eng.baseIncome(0) - 250) < 1e-9, eng.baseIncome(0));
+  eng.sides[1].incomeMul = 0.8;
+  check('阵营收入倍率照常乘上去', Math.abs(eng.baseIncome(1) - 200) < 1e-9, eng.baseIncome(1));
+}
+{
+  // 批量出兵：不扣钱、不占人口、不进冷却；n 个单独的单位；纵向铺满出兵带
+  const eng = new Engine({ seed: 93 });
+  const gold0 = eng.sides[0].gold;
+  const n = eng.massSpawn(0, 'rat', 500);
+  check('批量出兵 500 个单位（单独的个体，不是组）', n === 500 && eng.count(0, 'rat') === 500, `n=${n} count=${eng.count(0, 'rat')}`);
+  check('批量出兵不扣金币、人口、冷却', eng.sides[0].gold === gold0 && eng.sides[0].supplyUsed === 0 && !eng.sides[0].cdLeft.rat);
+  const ys = eng.units.map((u) => u.y);
+  const span = Math.max(...ys) - Math.min(...ys);
+  check('批量出兵纵向铺满出兵带（500 个，纵向跨度 ≥ 2000 px）', span >= 2000, span.toFixed(0));
+  const xs = eng.units.map((u) => u.x);
+  check('我方批量从我方水晶前沿往场中排（不越过场中线）', Math.min(...xs) > R.map.inset && Math.max(...xs) < R.map.w / 2,
+    `${Math.min(...xs).toFixed(0)}..${Math.max(...xs).toFixed(0)}`);
+  const m1 = eng.massSpawn(1, 'rat', 100);
+  const right = eng.units.filter((u) => u.side === 1).map((u) => u.x);
+  check('电脑批量从右侧水晶前沿往场中排', m1 === 100 && Math.min(...right) > R.map.w / 2, Math.min(...right).toFixed(0));
+  check('撒旦不能批量出，电脑不能用玩家专属兵', eng.massSpawn(0, 'satan', 5) === 0 && eng.massSpawn(1, 'satan', 5) === 0);
+}
+{
+  // 批量超过 2000：先上场 2000，其余待命；场上少了就陆续进场（每步最多 60），清空时队列也清掉
+  const eng = new Engine({ seed: 96 });
+  eng.massSpawn(0, 'rat', 2500);
+  check('批量 2500：先上场 2000，待命 500', eng.count(0, 'rat') === 2000 && eng.queued(0) === 500, `${eng.count(0, 'rat')} / ${eng.queued(0)}`);
+  for (const u of eng.units.filter((x) => x.side === 0).slice(0, 100)) eng.removeUnit(u);
+  step(eng, 1);
+  check('场上少了 100 个：下一步进场 60 个（每步上限），待命 440', eng.count(0, 'rat') === 1960 && eng.queued(0) === 440,
+    `${eng.count(0, 'rat')} / ${eng.queued(0)}`);
+  eng.wipe(0);
+  check('清空我方时待命队列也清掉', eng.queued(0) === 0 && eng.count(0, 'rat') === 0);
+}
+{
+  // 正常出兵的落点铺开：200 次出兵点的纵向跨度 ≥ 2000 px，不再挤成一条线
+  const eng = new Engine({ seed: 94 });
+  const ys = [];
+  for (let i = 0; i < 200; i++) ys.push(eng.formationPoint(0).y);
+  const span = Math.max(...ys) - Math.min(...ys);
+  check('出兵点纵向铺满出兵带（200 次落点跨度 ≥ 2000 px）', span >= 2000, span.toFixed(0));
+}
+{
+  // 帧推进：0.1 秒真实时间 → 约 0.1 秒模拟时间（3 步）
+  const eng = new Engine({ seed: 95 });
+  eng.update(0.1);
+  check('帧推进：0.1 秒真实时间 → 约 0.1 秒模拟时间', Math.abs(eng.time - 0.1) < DT, eng.time.toFixed(3));
 }
 
 // ---------- 2. 技能定点场景：2D，放置单位都在攻击距离、矩形、锥形或圆形之内，cd 初始化为 0 ----------
