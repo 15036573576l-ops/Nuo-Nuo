@@ -190,8 +190,8 @@
     const d = ALL.find((x) => x.id === uid);
     const c = state.cards.get(uid);
     const who = b.side === 0 ? '我方' : '电脑';
-    if (d.maxOnField) { toast(`${d.name}一次只能有一个，不能批量出`); return; }
-    if (d.playerOnly && b.side !== 0) { toast(`${d.name}只能我方使用`); return; }
+    if (d.maxOnField) { toast(`${d.name}不能批量出`); return; }
+    if (d.playerOnly && b.side !== 0 && !d.cheatSend) { toast(`${d.name}只能我方使用`); return; }
     const now = performance.now();
     if (b.count >= BIG_BATCH && !(b.pendingUid === uid && now < b.pendingT)) {
       b.pendingUid = uid;

@@ -305,12 +305,13 @@
     supplyCap() {
       return Math.floor(R.economy.supplyBase + R.economy.supplyGrowth * this.time);
     }
-    canSpawn(side, uid) {
+    // cheat：作弊派送（只有 cheatSend 的兵种能派给电脑）。电脑自己买 playerOnly 的兵种一律不行
+    canSpawn(side, uid, cheat = false) {
       const d = C.BY_ID[uid];
       const S = this.sides[side];
       if (!d) return 'no';
       if (this.ended) return 'ended';
-      if (d.playerOnly && side !== 0) return 'no';
+      if (d.playerOnly && side !== 0 && !(cheat && d.cheatSend)) return 'no';
       const ch = side === 0 ? this.cheats : null;
       if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
@@ -318,8 +319,8 @@
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
       return 'ok';
     }
-    spawn(side, uid) {
-      if (this.canSpawn(side, uid) !== 'ok') return false;
+    spawn(side, uid, cheat = false) {
+      if (this.canSpawn(side, uid, cheat) !== 'ok') return false;
       const d = C.BY_ID[uid];
       const S = this.sides[side];
       S.gold -= d.cost;
@@ -349,7 +350,7 @@
     massSpawn(side, uid, n) {
       const d = C.BY_ID[uid];
       if (!d || this.ended || !(n > 0)) return 0;
-      if (d.playerOnly && side !== 0) return 0;
+      if (d.playerOnly && side !== 0 && !d.cheatSend) return 0;
       if (d.maxOnField) return 0;
       n = Math.min(n, BATCH_ONCE);
       const now = Math.min(n, Math.max(0, BATCH_MAX - this.batchOn(side)));

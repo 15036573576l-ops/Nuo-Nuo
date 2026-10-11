@@ -37,7 +37,7 @@
     ] },
     { title: '出兵', rows: [
       { label: '', toggles: [['出兵无冷却', 'noCd'], ['无限人口', 'noSupply']] },
-      { label: '撒旦', buttons: [['免费召唤撒旦', summonSatan]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
+      { label: '撒旦', buttons: [['免费召唤撒旦', () => summonSatan(0)], ['派送撒旦给电脑', () => summonSatan(1)]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
       { label: '冰龙', buttons: [['免费召唤冰龙', summonDragon]], toggles: [['冰龙技能无冷却', 'dragonNoCd']] },
     ] },
     { title: '我方水晶', crystal: 0 },
@@ -196,25 +196,26 @@
     e.wipe(side);
     G.toast(side === 1 ? '敌军已全部消失' : '我方已清空');
   }
-  function summonSatan() {
+  // side：0 我方免费召唤，1 派送给电脑（只有作弊能这么做，电脑自己买不了）。撒旦没有数量上限
+  function summonSatan(side) {
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
-    const S = e.sides[0];
+    const S = e.sides[side];
     const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
     S.gold += SATAN.cost;
     S.cdLeft.satan = 0;
     S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
-    const why = e.canSpawn(0, 'satan');
+    const why = e.canSpawn(side, 'satan', true);
     if (why === 'ok') {
-      e.spawn(0, 'satan');
+      e.spawn(side, 'satan', true);
       S.gold = saved.gold;
       S.supplyUsed = saved.supply + SATAN.supply;
-      G.toast('撒旦降临');
+      G.toast(side === 0 ? '撒旦降临' : '撒旦降临电脑阵营');
     } else {
       S.gold = saved.gold;
       S.cdLeft.satan = saved.cd;
       S.supplyUsed = saved.supply;
-      G.toast(why === 'max' ? '撒旦已经在场上了' : '现在不能召唤');
+      G.toast('现在不能召唤');
     }
   }
 

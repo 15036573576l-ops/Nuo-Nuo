@@ -1,10 +1,10 @@
-// 糯糯战记 · 特殊单位：只有玩家能召唤，不进入电脑 AI、平衡模拟和无头测试的兵种池
+// 糯糯战记 · 特殊单位：只有玩家能自己召唤（撒旦还能被作弊派送给电脑），不进入电脑 AI、平衡模拟和无头测试的兵种池
 // 撒旦的形象来自 chierit 的 Boss: Demon Slime（CC-BY 4.0），见 assets/CREDITS.md
 window.SPECIAL_UNITS = [
   {
     id: 'satan', name: '撒旦', title: '深渊魔王', tier: 'EX', sheet: 'satan', role: '魔王',
-    playerOnly: true, scale: 1.2, ccImmune: true,
-    cost: 666, supply: 5, cooldown: 45, count: 1, maxOnField: 1,
+    playerOnly: true, cheatSend: true, scale: 1.2, ccImmune: true,   // 没有数量上限；电脑不能自己买，只能作弊派送
+    cost: 666, supply: 5, cooldown: 45, count: 1,
     hp: 20000, armor: 'heavy', atk: 260, aspd: 0.8, dmg: 'magic', range: 80, speed: 42, splash: 130,
     element: 'fire', onHit: [{ status: 'burn', stacks: 3 }, { status: 'weaken' }], tags: ['giant'],
     traits: [

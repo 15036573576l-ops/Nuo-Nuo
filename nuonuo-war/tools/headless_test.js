@@ -437,7 +437,7 @@ console.log('机制断言');
   const m1 = eng.massSpawn(1, 'rat', 100);
   const right = eng.units.filter((u) => u.side === 1).map((u) => u.x);
   check('电脑批量从右侧水晶前沿往场中排', m1 === 100 && Math.min(...right) > R.map.w / 2, Math.min(...right).toFixed(0));
-  check('撒旦不能批量出，电脑不能用玩家专属兵', eng.massSpawn(0, 'satan', 5) === 0 && eng.massSpawn(1, 'satan', 5) === 0);
+  check('撒旦可以批量出（没有数量上限），电脑只能被作弊派送；其他玩家专属兵电脑不能批量', eng.massSpawn(0, 'satan', 5) === 5 && eng.massSpawn(1, 'satan', 5) === 5 && eng.massSpawn(1, 'frostwing', 5) === 0);
 }
 {
   // 每方批量兵合计不超过 BATCH_MAX（5 万，所有兵种合计）：超出的待命；场上少了就陆续进场（每步最多 60），清空时队列也清掉
@@ -579,6 +579,22 @@ console.log('\n撒旦手动技能（J / K / L）');
 {
   const eng = new Engine({ seed: 50 });
   check('没有撒旦时手动释放返回 nosatan', manualCast(eng, 0, 0) === 'nosatan');
+{
+  // 撒旦规则：没有数量上限；电脑自己买不了，只有作弊派送（canSpawn 第三个参数 cheat）能给电脑
+  const eng = new Engine({ seed: 83 });
+  eng.sides[0].gold = 1e6; eng.sides[1].gold = 1e6;
+  let n = 0;
+  for (let i = 0; i < 4; i++) { eng.sides[0].cdLeft.satan = 0; if (eng.spawn(0, 'satan')) n++; }
+  check('我方自己买撒旦：没有上场数量限制（连买 4 个都成功）', n === 4 && eng.count(0, 'satan') === 4, `n=${n}`);
+  eng.sides[1].cdLeft.satan = 0;
+  check('电脑自己买不了撒旦（不作弊）', eng.canSpawn(1, 'satan') === 'no' && eng.spawn(1, 'satan') === false && eng.count(1, 'satan') === 0);
+  check('作弊派送撒旦给电脑可以（cheat=true）', eng.canSpawn(1, 'satan', true) === 'ok' && eng.spawn(1, 'satan', true) === true && eng.count(1, 'satan') === 1);
+  eng.sides[1].cdLeft.satan = 0;
+  check('派送给电脑也没有数量上限', eng.spawn(1, 'satan', true) === true && eng.count(1, 'satan') === 2);
+  check('作弊也不能派送冰龙给电脑（冰龙不是 cheatSend）', eng.canSpawn(1, 'frostwing', true) === 'no');
+  const got = manualCast(eng, 0, 0);
+  check('多个撒旦时手动技能场上每个撒旦一起放', got === 'ok' && eng.sides[0].manualCd[0] > 0, got);
+}
 }
 {
   // J 地狱火雨：全场敌军 400 火伤 + 3 层灼烧，敌方水晶受伤；之后进入冷却

@@ -737,13 +737,14 @@
   function manualCast(eng, side, idx) {
     const def = BY_ID.satan.manualSkills[idx];
     if (!def) return 'no';
-    const sat = eng.units.find((u) => u.side === side && u.uid === 'satan' && eng.alive(u));
-    if (!sat) return 'nosatan';
+    // 撒旦没有数量上限：场上每一个撒旦都一起放（和冰龙一样）
+    const sats = eng.units.filter((u) => u.side === side && u.uid === 'satan' && eng.alive(u));
+    if (!sats.length) return 'nosatan';
     const cds = eng.sides[side].manualCd;
     if (cds[idx] > 0) return 'cooldown';
     cds[idx] = eng.cheats && eng.cheats.satanNoCd ? 0 : def.cd;
-    eng.emit({ t: 'skill', side, uid: 'satan', name: def.name, x: sat.x, y: sat.y });
-    MANUAL[def.id](eng, sat);
+    eng.emit({ t: 'skill', side, uid: 'satan', name: def.name, x: sats[0].x, y: sats[0].y });
+    for (const sat of sats) MANUAL[def.id](eng, sat);
     return 'ok';
   }
 

@@ -31,7 +31,7 @@ GAMES=40 node tools/headless_test.js   # AI 对 AI 局数可调（默认 20）
 ```
 src/rules.js            全局规则：map（地图和水晶）、economy（经济）、伤害矩阵、状态、反应
 src/units.js            20 个兵种数据（未改数值）
-src/special.js          特殊单位：撒旦、冰龙（只有玩家能出）
+src/special.js          特殊单位：撒旦、冰龙（只有玩家能自己出；撒旦可以被作弊派送给电脑）
 src/hd-sheets.js        精灵图帧信息（由 tools/build_hd.py 生成）
 src/sprite-render.js    精灵渲染（opt 可选参数：once、period、flash、alpha、noShadow）
 src/game/combat.js      伤害管线、状态、元素反应、特性、主动技能、撒旦的光环和手动技能。纯逻辑

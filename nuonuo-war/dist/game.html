@@ -639,13 +639,13 @@ window.UNITS = [
 </script>
 <script>
 // ---- src/special.js ----
-// 糯糯战记 · 特殊单位：只有玩家能召唤，不进入电脑 AI、平衡模拟和无头测试的兵种池
+// 糯糯战记 · 特殊单位：只有玩家能自己召唤（撒旦还能被作弊派送给电脑），不进入电脑 AI、平衡模拟和无头测试的兵种池
 // 撒旦的形象来自 chierit 的 Boss: Demon Slime（CC-BY 4.0），见 assets/CREDITS.md
 window.SPECIAL_UNITS = [
   {
     id: 'satan', name: '撒旦', title: '深渊魔王', tier: 'EX', sheet: 'satan', role: '魔王',
-    playerOnly: true, scale: 1.2, ccImmune: true,
-    cost: 666, supply: 5, cooldown: 45, count: 1, maxOnField: 1,
+    playerOnly: true, cheatSend: true, scale: 1.2, ccImmune: true,   // 没有数量上限；电脑不能自己买，只能作弊派送
+    cost: 666, supply: 5, cooldown: 45, count: 1,
     hp: 20000, armor: 'heavy', atk: 260, aspd: 0.8, dmg: 'magic', range: 80, speed: 42, splash: 130,
     element: 'fire', onHit: [{ status: 'burn', stacks: 3 }, { status: 'weaken' }], tags: ['giant'],
     traits: [
@@ -2540,13 +2540,14 @@ window.HD_SHEETS = {
   function manualCast(eng, side, idx) {
     const def = BY_ID.satan.manualSkills[idx];
     if (!def) return 'no';
-    const sat = eng.units.find((u) => u.side === side && u.uid === 'satan' && eng.alive(u));
-    if (!sat) return 'nosatan';
+    // 撒旦没有数量上限：场上每一个撒旦都一起放（和冰龙一样）
+    const sats = eng.units.filter((u) => u.side === side && u.uid === 'satan' && eng.alive(u));
+    if (!sats.length) return 'nosatan';
     const cds = eng.sides[side].manualCd;
     if (cds[idx] > 0) return 'cooldown';
     cds[idx] = eng.cheats && eng.cheats.satanNoCd ? 0 : def.cd;
-    eng.emit({ t: 'skill', side, uid: 'satan', name: def.name, x: sat.x, y: sat.y });
-    MANUAL[def.id](eng, sat);
+    eng.emit({ t: 'skill', side, uid: 'satan', name: def.name, x: sats[0].x, y: sats[0].y });
+    for (const sat of sats) MANUAL[def.id](eng, sat);
     return 'ok';
   }
 
@@ -3029,12 +3030,13 @@ window.HD_SHEETS = {
     supplyCap() {
       return Math.floor(R.economy.supplyBase + R.economy.supplyGrowth * this.time);
     }
-    canSpawn(side, uid) {
+    // cheat：作弊派送（只有 cheatSend 的兵种能派给电脑）。电脑自己买 playerOnly 的兵种一律不行
+    canSpawn(side, uid, cheat = false) {
       const d = C.BY_ID[uid];
       const S = this.sides[side];
       if (!d) return 'no';
       if (this.ended) return 'ended';
-      if (d.playerOnly && side !== 0) return 'no';
+      if (d.playerOnly && side !== 0 && !(cheat && d.cheatSend)) return 'no';
       const ch = side === 0 ? this.cheats : null;
       if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
@@ -3042,8 +3044,8 @@ window.HD_SHEETS = {
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
       return 'ok';
     }
-    spawn(side, uid) {
-      if (this.canSpawn(side, uid) !== 'ok') return false;
+    spawn(side, uid, cheat = false) {
+      if (this.canSpawn(side, uid, cheat) !== 'ok') return false;
       const d = C.BY_ID[uid];
       const S = this.sides[side];
       S.gold -= d.cost;
@@ -3073,7 +3075,7 @@ window.HD_SHEETS = {
     massSpawn(side, uid, n) {
       const d = C.BY_ID[uid];
       if (!d || this.ended || !(n > 0)) return 0;
-      if (d.playerOnly && side !== 0) return 0;
+      if (d.playerOnly && side !== 0 && !d.cheatSend) return 0;
       if (d.maxOnField) return 0;
       n = Math.min(n, BATCH_ONCE);
       const now = Math.min(n, Math.max(0, BATCH_MAX - this.batchOn(side)));
@@ -5068,8 +5070,8 @@ window.HD_SHEETS = {
     const d = ALL.find((x) => x.id === uid);
     const c = state.cards.get(uid);
     const who = b.side === 0 ? '我方' : '电脑';
-    if (d.maxOnField) { toast(`${d.name}一次只能有一个，不能批量出`); return; }
-    if (d.playerOnly && b.side !== 0) { toast(`${d.name}只能我方使用`); return; }
+    if (d.maxOnField) { toast(`${d.name}不能批量出`); return; }
+    if (d.playerOnly && b.side !== 0 && !d.cheatSend) { toast(`${d.name}只能我方使用`); return; }
     const now = performance.now();
     if (b.count >= BIG_BATCH && !(b.pendingUid === uid && now < b.pendingT)) {
       b.pendingUid = uid;
@@ -5534,7 +5536,7 @@ window.HD_SHEETS = {
     ] },
     { title: '出兵', rows: [
       { label: '', toggles: [['出兵无冷却', 'noCd'], ['无限人口', 'noSupply']] },
-      { label: '撒旦', buttons: [['免费召唤撒旦', summonSatan]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
+      { label: '撒旦', buttons: [['免费召唤撒旦', () => summonSatan(0)], ['派送撒旦给电脑', () => summonSatan(1)]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
       { label: '冰龙', buttons: [['免费召唤冰龙', summonDragon]], toggles: [['冰龙技能无冷却', 'dragonNoCd']] },
     ] },
     { title: '我方水晶', crystal: 0 },
@@ -5693,25 +5695,26 @@ window.HD_SHEETS = {
     e.wipe(side);
     G.toast(side === 1 ? '敌军已全部消失' : '我方已清空');
   }
-  function summonSatan() {
+  // side：0 我方免费召唤，1 派送给电脑（只有作弊能这么做，电脑自己买不了）。撒旦没有数量上限
+  function summonSatan(side) {
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
-    const S = e.sides[0];
+    const S = e.sides[side];
     const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
     S.gold += SATAN.cost;
     S.cdLeft.satan = 0;
     S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
-    const why = e.canSpawn(0, 'satan');
+    const why = e.canSpawn(side, 'satan', true);
     if (why === 'ok') {
-      e.spawn(0, 'satan');
+      e.spawn(side, 'satan', true);
       S.gold = saved.gold;
       S.supplyUsed = saved.supply + SATAN.supply;
-      G.toast('撒旦降临');
+      G.toast(side === 0 ? '撒旦降临' : '撒旦降临电脑阵营');
     } else {
       S.gold = saved.gold;
       S.cdLeft.satan = saved.cd;
       S.supplyUsed = saved.supply;
-      G.toast(why === 'max' ? '撒旦已经在场上了' : '现在不能召唤');
+      G.toast('现在不能召唤');
     }
   }
 
