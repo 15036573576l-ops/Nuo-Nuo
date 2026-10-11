@@ -120,7 +120,7 @@
     const r2 = document.createElement('div');
     r2.className = 'row';
     r2.innerHTML = '<span>数量</span>';
-    for (const n of [100, 1000, 10000, 100000]) {
+    for (const n of [100, 1000, 10000]) {
       r2.appendChild(chip(G.fmtCount(n), cfg.batch.count === n, () => { cfg.batch.count = n; }));
     }
     fs.appendChild(r2);
@@ -133,7 +133,7 @@
     fs.appendChild(r3);
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。每方同时上场的批量兵最多 2000 个' +
+    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
       '（所有兵种合计），超出的进待命队列，场上少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
     fs.appendChild(hint);
     box.appendChild(fs);

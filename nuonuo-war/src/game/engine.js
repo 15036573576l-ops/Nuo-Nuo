@@ -14,7 +14,8 @@
   const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
   const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
   const MASS_DEPTH = 3000;  // 批量出兵：横向最多排多深，人再多就挤紧
-  const BATCH_MAX = 2000;   // 批量出兵：每方同时在场的批量兵上限（所有兵种合计）。超出的进待命队列，场上少了再陆续补进来
+  const BATCH_MAX = 50000;  // 批量出兵：每方同时在场的批量兵上限（所有兵种合计）。超出的进待命队列，场上少了再陆续补进来
+  const BATCH_ONCE = 10000; // 批量出兵：一次召唤最多多少个（再多要分几次点）
   const ENTER_PER_STEP = 60; // 待命队列每方每步最多进场的个数（陆续进场，不是一下子涌进来）
   const BUDGET_MS = 24;     // 一帧里逻辑最多占用的毫秒数，超了就停，欠的时间留到下一帧（慢放，不卡死）
   const ACC_MAX = 0.25;     // 欠的模拟时间上限（秒）：卡顿之后不快进补回来
@@ -328,6 +329,7 @@
       if (!d || this.ended || !(n > 0)) return 0;
       if (d.playerOnly && side !== 0) return 0;
       if (d.maxOnField) return 0;
+      n = Math.min(n, BATCH_ONCE);
       const now = Math.min(n, Math.max(0, BATCH_MAX - this.batchOn(side)));
       const M = R.map;
       const band = M.spawnSpread;
@@ -875,5 +877,6 @@
   Engine.DT = DT;
   Engine.Grid = Grid;
   Engine.BATCH_MAX = BATCH_MAX;
+  Engine.BATCH_ONCE = BATCH_ONCE;
   window.Engine = Engine;
 })();

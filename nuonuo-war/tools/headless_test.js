@@ -439,31 +439,32 @@ console.log('机制断言');
   check('撒旦不能批量出，电脑不能用玩家专属兵', eng.massSpawn(0, 'satan', 5) === 0 && eng.massSpawn(1, 'satan', 5) === 0);
 }
 {
-  // 批量超过 2000：先上场 2000，其余待命；场上少了就陆续进场（每步最多 60），清空时队列也清掉
+  // 每方批量兵合计不超过 BATCH_MAX（5 万，所有兵种合计）：超出的待命；场上少了就陆续进场（每步最多 60），清空时队列也清掉
+  const MAX = Engine.BATCH_MAX, ONCE = Engine.BATCH_ONCE;
   const eng = new Engine({ seed: 96 });
-  eng.massSpawn(0, 'rat', 2500);
-  check('批量 2500：先上场 2000，待命 500', eng.count(0, 'rat') === 2000 && eng.queued(0) === 500, `${eng.count(0, 'rat')} / ${eng.queued(0)}`);
+  for (let i = 0; i < MAX / ONCE; i++) eng.massSpawn(0, 'rat', ONCE);
+  check('连点 5 次 1 万：场上 5 万，待命 0', eng.batchOn(0) === MAX && eng.queued(0) === 0, `${eng.batchOn(0)} / ${eng.queued(0)}`);
+  eng.massSpawn(0, 'rat', ONCE);
+  check('再点 1 万：场上仍 5 万，待命 1 万', eng.batchOn(0) === MAX && eng.queued(0) === ONCE, `${eng.batchOn(0)} / ${eng.queued(0)}`);
   for (const u of eng.units.filter((x) => x.side === 0).slice(0, 100)) eng.removeUnit(u);
   step(eng, 1);
-  check('场上少了 100 个：下一步进场 60 个（每步上限），待命 440', eng.count(0, 'rat') === 1960 && eng.queued(0) === 440,
-    `${eng.count(0, 'rat')} / ${eng.queued(0)}`);
+  check('场上少了 100 个：下一步进场 60 个（每步上限），待命 9940', eng.batchOn(0) === MAX - 40 && eng.queued(0) === ONCE - 60,
+    `${eng.batchOn(0)} / ${eng.queued(0)}`);
   eng.wipe(0);
   check('清空我方时待命队列也清掉', eng.queued(0) === 0 && eng.count(0, 'rat') === 0);
 }
 {
-  // 每方批量兵合计不超过 2000（所有兵种合计）：连点不叠加，多种兵一起也不超过；100 万只排队，不建单位
+  // 每方批量兵合计不超过 BATCH_MAX（所有兵种合计）：两个兵种一起也不超过；100 万只排队，不建单位
+  const MAX = Engine.BATCH_MAX, ONCE = Engine.BATCH_ONCE;
   const eng = new Engine({ seed: 97 });
-  for (let i = 0; i < 5; i++) eng.massSpawn(0, 'rat', 100000);
-  check('连点 5 次 10 万：场上批量兵仍是 2000', eng.batchOn(0) === 2000, `${eng.batchOn(0)}`);
-  eng.wipe(0);
-  eng.massSpawn(0, 'rat', 1500);
-  eng.massSpawn(0, 'slime', 1500);
-  check('两个兵种合计不超过 2000，其余 1000 待命', eng.batchOn(0) === 2000 && eng.queued(0) === 1000,
+  for (let i = 0; i < 3; i++) eng.massSpawn(0, 'rat', ONCE);
+  for (let i = 0; i < 3; i++) eng.massSpawn(0, 'slime', ONCE);
+  check('两个兵种各 3 万：合计场上 5 万，待命 1 万', eng.batchOn(0) === MAX && eng.queued(0) === ONCE,
     `${eng.batchOn(0)} / ${eng.queued(0)}`);
   eng.wipe(0);
   const got = eng.massSpawn(0, 'rat', 1000000);
-  check('一次 100 万：上场 2000，待命 998000（排队只记个数，不建单位）',
-    got === 1000000 && eng.units.length === 2000 && eng.queued(0) === 998000, `${eng.units.length} / ${eng.queued(0)}`);
+  check('一次点 100 万：单次最多 1 万，只上场 1 万（不建 100 万个单位）',
+    got === ONCE && eng.batchOn(0) === ONCE && eng.queued(0) === 0, `${got} / ${eng.batchOn(0)} / ${eng.queued(0)}`);
 }
 {
   // 正常出兵的落点铺开：200 次出兵点的纵向跨度 ≥ 2000 px，不再挤成一条线
