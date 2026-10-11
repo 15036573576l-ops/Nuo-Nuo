@@ -670,13 +670,14 @@ window.SPECIAL_UNITS = [
   // 冰龙：形象是 assets/frostwing-src 里的“极寒之翼”三维模型渲染出来的。数值是撒旦的 1000 倍
   {
     id: 'frostwing', name: '冰龙', title: '极寒之翼', tier: 'SSSSSSS', sheet: 'frostwing', role: '灭世',
-    playerOnly: true, cardClass: 'frost', scale: 1.5, lift: 150, shadowR: 110, cull: 700,
-    ccImmune: true, immuneAll: true, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true,
+    playerOnly: true, cardClass: 'frost', scale: 1.5, shadowR: 110, cull: 700,
+    ccImmune: true, statusImmune: { burn: 1, poison: 1 }, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true, hunter: true,
     cost: 500000, supply: 0, cooldown: 1, count: 1,
     hp: 20000000, armor: 'heavy', atk: 260000, aspd: 0.5, dmg: 'magic', range: 420, speed: 110, splash: 260,
-    element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant', 'flying'],
+    element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant'],
     traits: [
-      { name: '极寒之躯', desc: '飞行。免疫控制、灼烧、中毒、诅咒和击退。' },
+      { name: '极寒之躯', desc: '走在地上，和别的兵一样能被打到、被挡住。免疫控制、灼烧、中毒、诅咒和击退。' },
+      { name: '猎食', desc: '往右走，哪边有敌军就追哪边（往左也追）。场上还有敌军时不碰水晶，全灭了才去推水晶。' },
       { name: '永冻光环', desc: '420 范围内的敌人每 0.5 秒受 30000 冰伤并叠 1 层寒霜。' },
       { name: '冰霜吐息', desc: '普通攻击：落点 260 范围 260000 魔法伤害，叠满 3 层寒霜。' },
       { name: '冰晶重生', desc: '第一次死亡时原地重生，回满血并无敌 3 秒。' },
@@ -1945,7 +1946,7 @@ window.HD_SHEETS = {
     if (!def) return false;
     if (id === 'poison' && hasTag(u, 'undead')) return false;     // 不死免疫中毒
     if (u.def && u.def.ccImmune && CC_IMMUNE[id]) return false;   // 撒旦：魔王之躯（水晶没有 def）
-    if (u.def && u.def.immuneAll && def.kind !== 'blessing') return false;   // 冰龙：极寒之躯，只收祝福
+    if (u.def && u.def.statusImmune && u.def.statusImmune[id]) return false;   // 冰龙：不怕灼烧和中毒
     if (id === 'weaken' && eng.rexAura(u)) return false;          // 王之威仪免疫衰弱
     switch (id) {
       case 'burn':
@@ -2972,8 +2973,15 @@ window.HD_SHEETS = {
         if (key < bestKey) { bestKey = key; best = e; }
       }
       if (best) return best;
+      if (u.def.hunter && this.foeUnitsAlive(u.side)) return null;   // 冰龙：场上还有敌军就不碰水晶
       const c = this.crystals[foe];
       return c.hp > 0 && this.hitsCrystal(u) && this.inReach(u, c) ? c : null;
+    }
+    // 敌方还有没有活着的单位（水晶不算）：冰龙靠它判断要不要去推水晶
+    foeUnitsAlive(side) {
+      const foe = 1 - side;
+      for (const e of this.units) if (e.side === foe && this.targetable(e)) return true;
+      return false;
     }
     validInRange(u, t) {
       if (t.isCrystal) return t.hp > 0 && this.hitsCrystal(u) && this.inReach(u, t);
@@ -2984,6 +2992,16 @@ window.HD_SHEETS = {
       if (u.ghost || u.def.speed <= 0) return null;
       const foe = 1 - u.side;
       let best = null, bd = Infinity;
+      if (u.def.hunter) {
+        // 冰龙猎食：全场最近的敌军单位（不管多远，往左也追），不找水晶
+        for (const e of this.units) {
+          if (e.side !== foe || !this.targetable(e)) continue;
+          if (e.flying && !u.canHitAir) continue;
+          const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
+          if (d < bd) { bd = d; best = e; }
+        }
+        return best;
+      }
       if (u.uid === 'bats') {
         for (const e of this.rangedBy[foe]) {
           if (!this.targetable(e)) continue;
@@ -3296,6 +3314,9 @@ window.HD_SHEETS = {
       if (c && this.targetable(c)) {
         if (this.inReach(u, c)) return;     // 已经够得着，由挥击处理
         tgt = c;
+      } else if (u.def.hunter && this.foeUnitsAlive(u.side)) {
+        // 冰龙：没有追击目标时先往右（朝敌方那边）走，不扑水晶
+        tgt = { x: u.x + (u.side === 0 ? 600 : -600), y: u.y };
       } else {
         const g = this.goalOf(u.side);
         if (g.hp <= 0 || this.inReach(u, g)) return;
@@ -3837,7 +3858,6 @@ window.HD_SHEETS = {
   ];
   const SIDE_COLOR = ['#6fd3ff', '#ff6b6b'];
   const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif';
-  const FLOWERS = ['#fff3a3', '#ffffff', '#ff9ac1', '#c9a7ff', '#ffd166'];
 
   const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 
@@ -3871,15 +3891,19 @@ window.HD_SHEETS = {
   }
 
   // 启动时把整张地图画到离屏画布上（世界平面的俯视图，一半分辨率）。绘制时再按 K 压扁。
-  // 内容：草地渐变、草丛噪点、一条土路（沿中线）、花、石头、树丛；水晶底座画在两端。
+  // 内容：冰面贴图（assets/ground/ice02.jpg，n4 作品，CC0，来自 OpenGameArt）平铺满图，再染成浅蓝；
+  // 雪堆、冰裂纹、中线一条淡色的冰路、冰晶碎片和闪光；水晶底座画成冰台。
   // 写成生成器：每个 yield 处让出一小段时间（见 Renderer.bakeStep），不会一次卡住几百毫秒
   function* bakeGround(cv) {
     const g = cv.getContext('2d');
     g.setTransform(BAKE, 0, 0, BAKE, 0, 0);
     const rnd = seeded(7321);
-    const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
     const hy = MH / 2;
-    // 土路的中心线：轻微起伏
+    // 贴图还没解码完就等（每个 yield 让出一帧）；加载失败就用纯色底
+    const img = new Image();
+    img.src = window.ICE_TILE || '';
+    while (!img.complete) yield;
+    // 冰路的中心线：轻微起伏
     const roadY = (x) => hy + Math.sin(x * 0.0011) * 60 + Math.sin(x * 0.0037 + 1.3) * 18;
     const roadPath = (half) => {
       g.beginPath();
@@ -3888,121 +3912,125 @@ window.HD_SHEETS = {
       g.closePath();
     };
 
-    // 草地渐变 + 大块明暗
-    const gg = g.createLinearGradient(0, 0, 0, MH);
-    gg.addColorStop(0, '#62944c');
-    gg.addColorStop(0.5, '#558546');
-    gg.addColorStop(1, '#3d6934');
-    g.fillStyle = gg;
+    // 底色 + 冰面贴图平铺，再染一层从上到下的浅蓝渐变
+    g.fillStyle = '#bfe6fa';
+    g.fillRect(0, 0, MW, MH);
+    if (img.naturalWidth > 0) {
+      const pat = g.createPattern(img, 'repeat');
+      pat.setTransform(new DOMMatrix().scale(0.7));
+      g.fillStyle = pat;
+      g.fillRect(0, 0, MW, MH);
+    }
+    const tint = g.createLinearGradient(0, 0, 0, MH);
+    tint.addColorStop(0, 'rgba(214,244,255,0.42)');
+    tint.addColorStop(0.5, 'rgba(160,216,246,0.18)');
+    tint.addColorStop(1, 'rgba(96,170,220,0.38)');
+    g.fillStyle = tint;
     g.fillRect(0, 0, MW, MH);
     yield;
-    for (let i = 0; i < 36; i++) {
-      if (i % 6 === 5) yield;
-      const x = rnd() * MW, y = rnd() * MH, rad = 220 + rnd() * 380;
+    // 大块的深浅：一片片冰面
+    for (let i = 0; i < 40; i++) {
+      if (i % 8 === 7) yield;
+      const x = rnd() * MW, y = rnd() * MH, rad = 240 + rnd() * 420;
       const rg = g.createRadialGradient(x, y, 0, x, y, rad);
-      rg.addColorStop(0, rnd() < 0.5 ? 'rgba(190,230,140,0.10)' : 'rgba(18,48,18,0.14)');
+      rg.addColorStop(0, rnd() < 0.5 ? 'rgba(255,255,255,0.16)' : 'rgba(40,110,170,0.14)');
       rg.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = rg;
       g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }
-    // 草丛噪点：细小的明暗斑点，和一批短草叶
-    const dark = 'rgba(16,42,16,0.32)', light = 'rgba(196,236,150,0.20)';
-    for (let i = 0; i < 50000; i++) {
-      const x = rnd() * MW, y = rnd() * MH, s = 1 + rnd() * 2;
-      g.fillStyle = rnd() < 0.55 ? dark : light;
-      g.fillRect(x, y, s, s * 0.8);
-      if (i % 1000 === 999) yield;
+    // 雪堆：柔和的白色斑块
+    for (let i = 0; i < 140; i++) {
+      if (i % 35 === 34) yield;
+      const x = rnd() * MW, y = rnd() * MH, rad = 30 + rnd() * 90;
+      const rg = g.createRadialGradient(x, y, 0, x, y, rad);
+      rg.addColorStop(0, 'rgba(255,255,255,0.55)');
+      rg.addColorStop(0.6, 'rgba(255,255,255,0.18)');
+      rg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = rg;
+      g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }
-    g.lineWidth = 1.2;
-    g.strokeStyle = 'rgba(28,66,26,0.55)';
-    g.beginPath();
-    for (let i = 0; i < 7000; i++) {
-      const x = rnd() * MW, y = rnd() * MH, d = (rnd() - 0.5) * 5;
-      g.moveTo(x, y); g.lineTo(x + d, y - 3 - rnd() * 3);
-      g.moveTo(x, y); g.lineTo(x - d * 0.8, y - 2 - rnd() * 3);
-    }
-    g.stroke();
     yield;
-
-    // 土路：深色路基 → 路面 → 中间略亮 → 车辙 → 碎石
-    g.fillStyle = '#5b4530'; roadPath(70); g.fill();
-    g.fillStyle = '#8a6b47'; roadPath(60); g.fill();
-    g.fillStyle = 'rgba(190,160,110,0.18)'; roadPath(22); g.fill();
-    g.strokeStyle = 'rgba(70,50,30,0.35)';
+    // 冰裂纹：从一点出发的折线，亮边压一道暗边
+    for (let i = 0; i < 90; i++) {
+      if (i % 30 === 29) yield;
+      let x = rnd() * MW, y = rnd() * MH, a = rnd() * Math.PI * 2;
+      const n = 6 + Math.floor(rnd() * 10);
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let k = 0; k < n; k++) {
+        a += (rnd() - 0.5) * 1.1;
+        x += Math.cos(a) * (18 + rnd() * 26);
+        y += Math.sin(a) * (18 + rnd() * 26);
+        g.lineTo(x, y);
+      }
+      g.lineWidth = 2.2;
+      g.strokeStyle = 'rgba(255,255,255,0.7)';
+      g.stroke();
+      g.lineWidth = 0.9;
+      g.strokeStyle = 'rgba(40,100,150,0.35)';
+      g.stroke();
+    }
+    // 冰路：中线一条淡色的冰带，两侧压细亮线（不挡路，单位照样看得清）
+    g.fillStyle = 'rgba(232,249,255,0.32)';
+    roadPath(110);
+    g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.22)';
+    roadPath(40);
+    g.fill();
+    g.strokeStyle = 'rgba(120,190,230,0.45)';
     g.lineWidth = 3;
-    for (const off of [-22, 22]) {
+    for (const off of [-110, 110]) {
       g.beginPath();
       for (let x = 0; x <= MW; x += 40) g.lineTo(x, roadY(x) + off);
       g.stroke();
     }
-    for (let i = 0; i < 2600; i++) {
-      const x = rnd() * MW, y = roadY(x) + (rnd() * 2 - 1) * 58, s = 1 + rnd() * 2.2;
-      g.fillStyle = rnd() < 0.5 ? 'rgba(70,50,30,0.5)' : 'rgba(214,190,140,0.4)';
-      g.fillRect(x, y, s, s);
-    }
-
     yield;
-    // 两座水晶的底座（石板圆台）：和水晶的碰撞圆同一个半径，单位站在圆边上正好贴着底座
+    // 冰晶碎片：小三角，亮的一面朝左上，影子往右下
+    for (let i = 0; i < 260; i++) {
+      if (i % 65 === 64) yield;
+      const x = rnd() * MW, y = rnd() * MH, s = 6 + rnd() * 12, a = rnd() * Math.PI * 2;
+      if (Math.hypot(x - R.map.inset, y - hy) < 260 || Math.hypot(x - (MW - R.map.inset), y - hy) < 260) continue;
+      const pts = [0, 1, 2].map((k) => {
+        const t = a + k * 2.094 + (rnd() - 0.5) * 0.5, r = s * (0.6 + rnd() * 0.5);
+        return [x + Math.cos(t) * r, y + Math.sin(t) * r];
+      });
+      const tri = (dx, dy) => {
+        g.beginPath();
+        g.moveTo(pts[0][0] + dx, pts[0][1] + dy);
+        g.lineTo(pts[1][0] + dx, pts[1][1] + dy);
+        g.lineTo(pts[2][0] + dx, pts[2][1] + dy);
+        g.closePath();
+        g.fill();
+      };
+      g.fillStyle = 'rgba(40,110,170,0.22)';
+      tri(3, 3);
+      g.fillStyle = rnd() < 0.5 ? 'rgba(235,250,255,0.85)' : 'rgba(170,220,250,0.85)';
+      tri(0, 0);
+    }
+    yield;
+    // 两座水晶的底座（冰台）：和水晶的碰撞圆同一个半径，单位站在圆边上正好贴着底座
     for (const px of [R.map.inset, MW - R.map.inset]) {
       const rr = R.map.crystalRadius;
-      g.fillStyle = 'rgba(0,0,0,0.25)';
+      g.fillStyle = 'rgba(20,70,110,0.28)';
       g.beginPath(); g.arc(px + 6, hy + 8, rr, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#5b5c67';
+      const cg = g.createRadialGradient(px - rr * 0.3, hy - rr * 0.3, rr * 0.1, px, hy, rr);
+      cg.addColorStop(0, '#ffffff');
+      cg.addColorStop(0.7, '#cdeeff');
+      cg.addColorStop(1, '#8fd0f2');
+      g.fillStyle = cg;
       g.beginPath(); g.arc(px, hy, rr, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#3c3d47'; g.lineWidth = 4; g.stroke();
+      g.strokeStyle = '#5aaee0'; g.lineWidth = 4; g.stroke();
     }
-
-    // 花丛
-    for (let i = 0; i < 160; i++) {
-      if (i % 40 === 39) yield;
-      const cx = rnd() * MW, cy = rnd() * MH;
-      if (Math.abs(cy - roadY(cx)) < 80) continue;
-      const col = pick(FLOWERS), n = 6 + Math.floor(rnd() * 10);
-      for (let j = 0; j < n; j++) {
-        const x = cx + (rnd() - 0.5) * 70, y = cy + (rnd() - 0.5) * 50;
-        g.fillStyle = rnd() < 0.7 ? col : pick(FLOWERS);
-        g.beginPath(); g.arc(x, y, 1.5 + rnd() * 1.5, 0, Math.PI * 2); g.fill();
-      }
-    }
-    // 石头
-    for (let i = 0; i < 280; i++) {
-      const x = rnd() * MW, y = rnd() * MH, rw = 5 + rnd() * 9, rh = rw * (0.6 + rnd() * 0.3);
-      g.fillStyle = 'rgba(0,0,0,0.22)';
-      g.beginPath(); g.ellipse(x + 3, y + 4, rw, rh, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = rnd() < 0.5 ? '#8f959c' : '#737980';
-      g.beginPath(); g.ellipse(x, y, rw, rh, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.2)';
-      g.beginPath(); g.ellipse(x - rw * 0.25, y - rh * 0.3, rw * 0.5, rh * 0.4, 0, 0, Math.PI * 2); g.fill();
-    }
-    yield;
-    // 树丛：俯视的树冠和投影，画在花和石头之上。不挡路，只是装饰
-    const blocked = (x, y) => {
-      if (Math.abs(y - roadY(x)) < 110) return true;
-      return Math.hypot(x - R.map.inset, y - hy) < 260 || Math.hypot(x - (MW - R.map.inset), y - hy) < 260;
-    };
-    for (let i = 0; i < 120; i++) {
-      if (i % 12 === 11) yield;
+    // 闪光：细小的白点，画在地上（静态）
+    for (let i = 0; i < 1200; i++) {
+      if (i % 400 === 399) yield;
       const x = rnd() * MW, y = rnd() * MH;
-      if (blocked(x, y)) continue;
-      const n = 3 + Math.floor(rnd() * 5);
-      for (let k = 0; k < n; k++) {
-        const cx = x + (rnd() - 0.5) * 130, cy = y + (rnd() - 0.5) * 100, rad = 24 + rnd() * 34;
-        g.fillStyle = 'rgba(10,30,10,0.32)';
-        g.beginPath(); g.arc(cx + 8, cy + 10, rad, 0, Math.PI * 2); g.fill();
-        const cg = g.createRadialGradient(cx - rad * 0.3, cy - rad * 0.3, rad * 0.1, cx, cy, rad);
-        cg.addColorStop(0, '#6aa253'); cg.addColorStop(0.65, '#3f7236'); cg.addColorStop(1, '#2a5025');
-        g.fillStyle = cg;
-        g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI * 2); g.fill();
-        g.fillStyle = 'rgba(200,240,160,0.22)';
-        for (let j = 0; j < 5; j++) {
-          const a = rnd() * Math.PI * 2, d = rnd() * rad * 0.6;
-          g.beginPath(); g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 2 + rnd() * 4, 0, Math.PI * 2); g.fill();
-        }
-      }
+      g.fillStyle = `rgba(255,255,255,${(0.35 + rnd() * 0.5).toFixed(2)})`;
+      g.beginPath(); g.arc(x, y, 1 + rnd() * 1.6, 0, Math.PI * 2); g.fill();
     }
     yield;
-    // 地图边缘压暗
-    g.strokeStyle = 'rgba(0,0,0,0.45)';
+    // 地图边缘压一圈冷色
+    g.strokeStyle = 'rgba(30,80,120,0.5)';
     g.lineWidth = 14;
     g.strokeRect(0, 0, MW, MH);
     return cv;
@@ -4047,8 +4075,10 @@ window.HD_SHEETS = {
     resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const r = this.cv.getBoundingClientRect();
+      // 还没排版好（0 宽或 0 高）就不动：否则缓冲区是 1 像素高，整张画面会被拉扁成一条
+      if (r.width < 2 || r.height < 2) return;
       this.w = Math.max(320, r.width);
-      this.h = Math.max(1, r.height);     // 按舞台的实际高度，不钳到 200（矮的舞台会把画面压扁）
+      this.h = r.height;                  // 按舞台的实际高度，不钳到 200（矮的舞台会把画面压扁）
       this.cv.width = Math.round(this.w * dpr);
       this.cv.height = Math.round(this.h * dpr);
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -5443,6 +5473,8 @@ window.HD_SHEETS = {
     state.renderer = new Render.Renderer($('cv'));
     resize();
     window.addEventListener('resize', resize);
+    // 画布尺寸跟着它自己的排版走：启动时还没排版、字体或布局后来才变、手机地址栏收放，都会改尺寸，光靠 resize 事件会漏掉
+    if (window.ResizeObserver) new ResizeObserver(resize).observe($('cv'));
     bindCamera();
     bindKeys();
     bindMenus();

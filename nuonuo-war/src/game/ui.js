@@ -595,6 +595,8 @@
     state.renderer = new Render.Renderer($('cv'));
     resize();
     window.addEventListener('resize', resize);
+    // 画布尺寸跟着它自己的排版走：启动时还没排版、字体或布局后来才变、手机地址栏收放，都会改尺寸，光靠 resize 事件会漏掉
+    if (window.ResizeObserver) new ResizeObserver(resize).observe($('cv'));
     bindCamera();
     bindKeys();
     bindMenus();

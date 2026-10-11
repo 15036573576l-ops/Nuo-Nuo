@@ -143,7 +143,7 @@
     if (!def) return false;
     if (id === 'poison' && hasTag(u, 'undead')) return false;     // 不死免疫中毒
     if (u.def && u.def.ccImmune && CC_IMMUNE[id]) return false;   // 撒旦：魔王之躯（水晶没有 def）
-    if (u.def && u.def.immuneAll && def.kind !== 'blessing') return false;   // 冰龙：极寒之躯，只收祝福
+    if (u.def && u.def.statusImmune && u.def.statusImmune[id]) return false;   // 冰龙：不怕灼烧和中毒
     if (id === 'weaken' && eng.rexAura(u)) return false;          // 王之威仪免疫衰弱
     switch (id) {
       case 'burn':

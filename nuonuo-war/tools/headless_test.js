@@ -646,6 +646,33 @@ console.log('\n冰龙（V 召唤，B / N / M 技能，H 开关打水晶）');
   check('玩家可以批量出冰龙', eng.massSpawn(0, 'frostwing', 4) === 4 && eng.count(0, 'frostwing') === 7);
 }
 {
+  // 走在地上、能被打到；猎食：往右走、哪边有敌军就追（往左也追）；场上还有敌军就不碰水晶，全灭了才推水晶
+  const eng = new Engine({ seed: 80 });
+  const d = eng.addUnit(0, DRAGON, at(1500));
+  check('冰龙是地面单位（不飞）', !d.flying && !DRAGON.tags.includes('flying'));
+  const foe = eng.addUnit(1, def('rat'), at(1500, MY + 80));
+  const hit = C.damage(eng, foe, d, 1000, 'slash', { attack: true });
+  check('冰龙能被普通攻击打到（不再免疫一切）', hit > 0 && d.hp < d.maxHp, `${hit} / ${d.hp}`);
+  const eng2 = new Engine({ seed: 81 });
+  const d2 = eng2.addUnit(0, DRAGON, at(2400));
+  const back = eng2.addUnit(1, def('rat'), at(900));
+  const x0 = d2.x;
+  step(eng2, 60);
+  check('冰龙往左追身后的敌军（猎食，不只往右）', d2.x < x0 - 100,
+    `x ${x0.toFixed(0)} -> ${d2.x.toFixed(0)}`);
+  const eng3 = new Engine({ seed: 82 });
+  eng3.dragonCrystal = true;
+  const c3 = eng3.crystals[1];
+  const d3 = eng3.addUnit(0, DRAGON, at(c3.x - 300));
+  const far = eng3.addUnit(1, def('titan'), at(500, MY - 600));
+  step(eng3, 60);
+  check('场上还有敌军时冰龙不推水晶（水晶血量不变）', c3.hp === c3.maxHp && eng3.findTarget(d3) !== c3 && eng3.alive(far),
+    `hp=${c3.hp}`);
+  for (const u of eng3.units.filter((x) => x.side === 1)) eng3.removeUnit(u);
+  step(eng3, 90);
+  check('敌军全灭以后冰龙去推水晶', c3.hp < c3.maxHp || eng3.ended, `hp=${c3.hp}`);
+}
+{
   // 免疫控制和持续伤害；第一次死亡原地重生
   const eng = new Engine({ seed: 71 });
   const d = eng.addUnit(0, DRAGON, at(2000));

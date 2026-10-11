@@ -249,8 +249,15 @@
         if (key < bestKey) { bestKey = key; best = e; }
       }
       if (best) return best;
+      if (u.def.hunter && this.foeUnitsAlive(u.side)) return null;   // 冰龙：场上还有敌军就不碰水晶
       const c = this.crystals[foe];
       return c.hp > 0 && this.hitsCrystal(u) && this.inReach(u, c) ? c : null;
+    }
+    // 敌方还有没有活着的单位（水晶不算）：冰龙靠它判断要不要去推水晶
+    foeUnitsAlive(side) {
+      const foe = 1 - side;
+      for (const e of this.units) if (e.side === foe && this.targetable(e)) return true;
+      return false;
     }
     validInRange(u, t) {
       if (t.isCrystal) return t.hp > 0 && this.hitsCrystal(u) && this.inReach(u, t);
@@ -261,6 +268,16 @@
       if (u.ghost || u.def.speed <= 0) return null;
       const foe = 1 - u.side;
       let best = null, bd = Infinity;
+      if (u.def.hunter) {
+        // 冰龙猎食：全场最近的敌军单位（不管多远，往左也追），不找水晶
+        for (const e of this.units) {
+          if (e.side !== foe || !this.targetable(e)) continue;
+          if (e.flying && !u.canHitAir) continue;
+          const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
+          if (d < bd) { bd = d; best = e; }
+        }
+        return best;
+      }
       if (u.uid === 'bats') {
         for (const e of this.rangedBy[foe]) {
           if (!this.targetable(e)) continue;
@@ -573,6 +590,9 @@
       if (c && this.targetable(c)) {
         if (this.inReach(u, c)) return;     // 已经够得着，由挥击处理
         tgt = c;
+      } else if (u.def.hunter && this.foeUnitsAlive(u.side)) {
+        // 冰龙：没有追击目标时先往右（朝敌方那边）走，不扑水晶
+        tgt = { x: u.x + (u.side === 0 ? 600 : -600), y: u.y };
       } else {
         const g = this.goalOf(u.side);
         if (g.hp <= 0 || this.inReach(u, g)) return;

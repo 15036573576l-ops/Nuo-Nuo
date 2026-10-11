@@ -29,13 +29,14 @@ window.SPECIAL_UNITS = [
   // 冰龙：形象是 assets/frostwing-src 里的“极寒之翼”三维模型渲染出来的。数值是撒旦的 1000 倍
   {
     id: 'frostwing', name: '冰龙', title: '极寒之翼', tier: 'SSSSSSS', sheet: 'frostwing', role: '灭世',
-    playerOnly: true, cardClass: 'frost', scale: 1.5, lift: 150, shadowR: 110, cull: 700,
-    ccImmune: true, immuneAll: true, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true,
+    playerOnly: true, cardClass: 'frost', scale: 1.5, shadowR: 110, cull: 700,
+    ccImmune: true, statusImmune: { burn: 1, poison: 1 }, noFlinch: true, revive: '冰晶重生', crystalSwitch: true, breath: true, hunter: true,
     cost: 500000, supply: 0, cooldown: 1, count: 1,
     hp: 20000000, armor: 'heavy', atk: 260000, aspd: 0.5, dmg: 'magic', range: 420, speed: 110, splash: 260,
-    element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant', 'flying'],
+    element: 'frost', onHit: [{ status: 'chill', stacks: 3 }], tags: ['giant'],
     traits: [
-      { name: '极寒之躯', desc: '飞行。免疫控制、灼烧、中毒、诅咒和击退。' },
+      { name: '极寒之躯', desc: '走在地上，和别的兵一样能被打到、被挡住。免疫控制、灼烧、中毒、诅咒和击退。' },
+      { name: '猎食', desc: '往右走，哪边有敌军就追哪边（往左也追）。场上还有敌军时不碰水晶，全灭了才去推水晶。' },
       { name: '永冻光环', desc: '420 范围内的敌人每 0.5 秒受 30000 冰伤并叠 1 层寒霜。' },
       { name: '冰霜吐息', desc: '普通攻击：落点 260 范围 260000 魔法伤害，叠满 3 层寒霜。' },
       { name: '冰晶重生', desc: '第一次死亡时原地重生，回满血并无敌 3 秒。' },
