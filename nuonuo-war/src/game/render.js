@@ -23,6 +23,8 @@
   const FLY_LIFT = 36;              // 飞行单位离地的高度（世界像素）
   const CULL = 90;                  // 视野外多留的余量（屏幕像素），精灵边缘不会突然消失
   const BODY_MAX = 400;             // 一帧最多画多少具尸体
+  const SPRITE_MAX = 1600;          // 精灵预算的上限：一帧最多画多少个普通单位的精灵，超出的画成阵营色小块（见 thinOut）
+  const SPRITE_MIN = 400;           // 手机很卡时预算最低降到这里
   const byY = (a, b) => a.y - b.y;
 
   const ELEM = { fire: '#ff8a3d', frost: '#7dd8ff', poison: '#8be05c', shadow: '#c86bff', holy: '#ffe38a' };
@@ -33,6 +35,8 @@
     ['holyShield', '盾', '#ffe38a'], ['unyielding', '不', '#ffd166'], ['stun', '晕', '#ffd166'], ['root', '定', '#c9a46b'],
   ];
   const SIDE_COLOR = ['#6fd3ff', '#ff6b6b'];
+  // 撒旦和冰龙这种主角：缩远、人多都照常画精灵
+  const vip = (u) => !!u.def.cull || u.uid === 'satan';
   const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif';
 
   const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
@@ -225,6 +229,10 @@
       // 每帧复用的缓冲区：要画的东西、血条。不每帧新建几千个小对象
       this.pool = [];
       this.ents = [];
+      this.dots = [];
+      this.keep = [];
+      this.budget = 1000;           // 当前精灵预算，adapt 里按帧时间上下调
+      this.budN = 0;
       this.bodyBuf = [];
       this.bars = [];             // 血条：x, y, w, h, frac, side 六个数一组
       this.base = 1;              // 画布的基础缩放 = 设备像素比 × 画质
@@ -239,6 +247,11 @@
     // 帧慢、但脚本没花多少时间，说明慢在显卡填像素上，降分辨率才有用；慢在脚本上就不降（降了也白糊）
     adapt(dt, cpuMs) {
       const ms = dt * 1000;
+      // 精灵预算：连着卡就少画几个精灵，连着流畅再慢慢加回来
+      if (ms > 26) this.budN = Math.min(0, this.budN) - 1;
+      else if (ms < 18) this.budN = Math.max(0, this.budN) + 1;
+      if (this.budN < -20) { this.budget = Math.max(SPRITE_MIN, this.budget * 0.8 | 0); this.budN = 0; }
+      else if (this.budN > 150) { this.budget = Math.min(SPRITE_MAX, this.budget * 1.15 | 0); this.budN = 0; }
       if (ms > 24 && cpuMs < ms * 0.5) this.slowN++; else this.slowN = Math.max(0, this.slowN - 1);
       if (ms < 18.5) this.fastN++; else this.fastN = 0;
       if (this.slowN > 45 && this.q > 0.6) {
@@ -415,6 +428,7 @@
       this.ctx.imageSmoothingEnabled = false;
       for (let i = 0; i < bodies.length; i++) this.drawBody(bodies[i]);
       this.drawShadows(ents);
+      this.drawDots();
       // 单位和水晶按 y 排序（远的先画）。缩得很远又有几千个时不排：精灵只有几个像素，谁压谁看不出来，
       // 不排的话顺序每帧都一样，也不会闪
       if (this.cam.zoom >= 0.2 || ents.length < 1500) ents.sort(byY);
@@ -512,7 +526,7 @@
         const py = gy - (u.flying ? (u.def.lift || FLY_LIFT) * z : 0);
         const cull = Math.max(CULL, (u.def.cull || 0) * z);     // 冰龙的精灵很大，视野外要多留一截
         if (gx < -cull || gx > w + cull || py < -cull || py > h + cull) continue;
-        if (occ && !u.giant && !u.def.cull) {
+        if (occ && !vip(u)) {
           const ix = ((gx / c) | 0) + 1, iy = ((py / c) | 0) + 1;
           if (ix >= 0 && ix < cw && iy >= 0 && iy < ch) {
             const k = (iy * cw + ix) * 2 + u.side;
@@ -523,6 +537,7 @@
         put(0, u, u.y, gx, py, gy);
       }
       ents.length = n;
+      this.thinOut(ents);
       // 尸体：视野里最多画 BODY_MAX 具（从最新的往回数），一下子死了几千个也不会拖慢
       const bodies = this.bodyBuf;
       bodies.length = 0;
@@ -534,6 +549,78 @@
         bodies.push({ b, sx: gx, sy: gy });
       }
       return { ents, bodies };
+    }
+
+    // 精灵太多时：正在打或刚挨打的优先画精灵，然后按屏幕格子每格每阵营留一个，剩下的进 dots 画成小色块。
+    // 格子大小按“满屏均匀铺开正好 SPRITE_MAX 个”算，人挤在一起的地方保留得少，散开的地方基本不受影响
+    thinOut(ents) {
+      const dots = this.dots;
+      dots.length = 0;
+      let cnt = 0;
+      for (let i = 0; i < ents.length; i++) if (ents[i].k === 0 && !vip(ents[i].o)) cnt++;
+      const budget = this.budget;
+      if (cnt <= budget) return;
+      const w = this.w, h = this.h;
+      // 格子先取小一点，留下的还是太多就放大再来（人挤成团时格子要更小才留得够）
+      let c = Math.max(3, Math.sqrt((w * h * 2) / budget) / 3);
+      for (let tries = 0; tries < 5; tries++) {
+        if (this.thinPass(ents, c, true) <= budget) break;
+        c *= 1.35;
+      }
+      this.thinPass(ents, c, false);
+    }
+    // 按格子大小 c 筛一遍；dry 时只数能留下几个
+    thinPass(ents, c, dry) {
+      const w = this.w, h = this.h, dots = this.dots;
+      const cw = Math.ceil(w / c) + 2, ch = Math.ceil(h / c) + 2, size = cw * ch * 2;
+      if (!this.occ2 || this.occ2.length < size) this.occ2 = new Uint8Array(size);
+      else this.occ2.fill(0, 0, size);
+      const occ = this.occ2, keep = this.keep;
+      keep.length = 0;
+      let kept = 0;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < ents.length; i++) {
+          const it = ents[i];
+          if (it.k !== 0) { if (pass === 0) keep.push(it); continue; }
+          const u = it.o;
+          if (vip(u)) { if (pass === 0) keep.push(it); continue; }
+          const busy = !!u.swing || u.hitT < 0.3 || !!u.cast || !!u.charge;
+          if (busy !== (pass === 0)) continue;
+          let ix = ((it.sx / c) | 0) + 1, iy = ((it.sy / c) | 0) + 1;
+          if (ix < 0) ix = 0; else if (ix >= cw) ix = cw - 1;
+          if (iy < 0) iy = 0; else if (iy >= ch) iy = ch - 1;
+          const k = (iy * cw + ix) * 2 + u.side;
+          if (occ[k]) { if (!dry) dots.push(it); continue; }
+          occ[k] = 1;
+          kept++;
+          if (!dry) keep.push(it);
+        }
+      }
+      if (dry) return kept;
+      for (let i = 0; i < keep.length; i++) ents[i] = keep[i];
+      ents.length = keep.length;
+      keep.length = 0;
+      return kept;
+    }
+    // 被省掉精灵的单位：每个阵营一条路径，画成和身体差不多大的色块
+    drawDots() {
+      const dots = this.dots;
+      if (!dots.length) return;
+      const ctx = this.ctx, z = this.cam.zoom;
+      ctx.globalAlpha = 0.85;
+      for (let s = 0; s < 2; s++) {
+        ctx.beginPath();
+        let any = false;
+        for (let i = 0; i < dots.length; i++) {
+          const it = dots[i], u = it.o;
+          if (u.side !== s) continue;
+          const r = Math.max(1.5, u.radius * z * 0.8), hh = r * 1.6;
+          ctx.rect(it.sx - r, it.sy - hh, r * 2, hh);
+          any = true;
+        }
+        if (any) { ctx.fillStyle = s ? '#c9484d' : '#4a9fd0'; ctx.fill(); }
+      }
+      ctx.globalAlpha = 1;
     }
 
     // 所有单位的地面阴影一次画完：地面单位一条路径、飞行单位一条路径，各填一次（原来是一个单位填一次）
@@ -778,7 +865,8 @@
       const bw = detail ? Math.max(24, sh.bodyW * S * 1.05) : Math.max(6, sh.bodyW * S * 0.9), bh = detail ? Math.max(2, 4 * z) : 1.5;
       const bx = px - bw / 2, by = top - bh;
       const frac = u.hp >= u.maxHp ? 1 : Math.max(0, u.hp / u.maxHp);
-      if (detail || frac < 1) this.bars.push(bx, by, bw, bh, frac, u.side);
+      // 精灵预算生效（人太多）时只给撒旦和冰龙画血条，不然整屏都是血条
+      if ((detail || frac < 1) && (!this.dots.length || vip(u))) this.bars.push(bx, by, bw, bh, frac, u.side);
       // 下面这些只有身上挂着状态或者在蓄力才会有，先看一眼有没有，大多数单位到这里就结束了
       let hasSt = false;
       for (const id in u.st) { hasSt = true; break; }

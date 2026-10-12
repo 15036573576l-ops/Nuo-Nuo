@@ -232,16 +232,21 @@
   function tickStatuses(eng, u, dt) {
     if (u.bones) return;
     if (eng.cheats && eng.cheats.godMode[u.side]) { delete u.st.burn; delete u.st.poison; }
-    if (has(u, 'burn')) takeHp(eng, u, R.statuses.burn.dps * stacksOf(u, 'burn') * dt, true);
-    if (has(u, 'poison')) takeHp(eng, u, R.statuses.poison.dps * stacksOf(u, 'poison') * dt, true); // 无视护甲
-    for (const id in u.st) {
-      u.st[id].t -= dt;
-      if (u.st[id].t <= 0) delete u.st[id];
+    const sts = u.st;
+    for (const id in sts) {
+      if (!(sts[id].t > 0)) continue;
+      if (id === 'burn') takeHp(eng, u, R.statuses.burn.dps * stacksOf(u, 'burn') * dt, true);
+      else if (id === 'poison') takeHp(eng, u, R.statuses.poison.dps * stacksOf(u, 'poison') * dt, true); // 无视护甲
     }
-    u.imm.stun = Math.max(0, u.imm.stun - dt);
-    u.imm.frozen = Math.max(0, u.imm.frozen - dt);
-    u.invuln = Math.max(0, u.invuln - dt);
-    u.smiteT = Math.max(0, (u.smiteT || 0) - dt);
+    for (const id in sts) {
+      sts[id].t -= dt;
+      if (sts[id].t <= 0) delete sts[id];
+    }
+    const im = u.imm;
+    if (im.stun > 0) im.stun = im.stun > dt ? im.stun - dt : 0;
+    if (im.frozen > 0) im.frozen = im.frozen > dt ? im.frozen - dt : 0;
+    if (u.invuln > 0) u.invuln = u.invuln > dt ? u.invuln - dt : 0;
+    if (u.smiteT > 0) u.smiteT = u.smiteT > dt ? u.smiteT - dt : 0;
     u.hitT += dt;
   }
 

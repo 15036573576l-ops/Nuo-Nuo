@@ -2066,16 +2066,21 @@ window.HD_SHEETS = {
   function tickStatuses(eng, u, dt) {
     if (u.bones) return;
     if (eng.cheats && eng.cheats.godMode[u.side]) { delete u.st.burn; delete u.st.poison; }
-    if (has(u, 'burn')) takeHp(eng, u, R.statuses.burn.dps * stacksOf(u, 'burn') * dt, true);
-    if (has(u, 'poison')) takeHp(eng, u, R.statuses.poison.dps * stacksOf(u, 'poison') * dt, true); // 无视护甲
-    for (const id in u.st) {
-      u.st[id].t -= dt;
-      if (u.st[id].t <= 0) delete u.st[id];
+    const sts = u.st;
+    for (const id in sts) {
+      if (!(sts[id].t > 0)) continue;
+      if (id === 'burn') takeHp(eng, u, R.statuses.burn.dps * stacksOf(u, 'burn') * dt, true);
+      else if (id === 'poison') takeHp(eng, u, R.statuses.poison.dps * stacksOf(u, 'poison') * dt, true); // 无视护甲
     }
-    u.imm.stun = Math.max(0, u.imm.stun - dt);
-    u.imm.frozen = Math.max(0, u.imm.frozen - dt);
-    u.invuln = Math.max(0, u.invuln - dt);
-    u.smiteT = Math.max(0, (u.smiteT || 0) - dt);
+    for (const id in sts) {
+      sts[id].t -= dt;
+      if (sts[id].t <= 0) delete sts[id];
+    }
+    const im = u.imm;
+    if (im.stun > 0) im.stun = im.stun > dt ? im.stun - dt : 0;
+    if (im.frozen > 0) im.frozen = im.frozen > dt ? im.frozen - dt : 0;
+    if (u.invuln > 0) u.invuln = u.invuln > dt ? u.invuln - dt : 0;
+    if (u.smiteT > 0) u.smiteT = u.smiteT > dt ? u.smiteT - dt : 0;
     u.hitT += dt;
   }
 
@@ -2794,6 +2799,7 @@ window.HD_SHEETS = {
   const MAX_R = 40;         // 单位半径上限，查询范围要多留这一截
   const REACH = 4;          // 攻击距离的余量（中心到中心）
   const RETARGET = 0.25;    // 追击目标的重新计算间隔（秒）
+  const LOD_N = 3000;       // 场上单位超过这个数开始省算力：隔步推挤、放慢重新找目标
   const GROUP_GAP_X = 26;   // 同一组单位往后排的间距
   const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
   const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
@@ -2859,12 +2865,24 @@ window.HD_SHEETS = {
       if (cx < 0 || cy < 0 || cx >= this.gw || cy >= this.gh) return null;
       return this.cells[cy * this.gw + cx];
     }
-    insert(u) {
-      let cx = Math.floor(u.x / this.cell), cy = Math.floor(u.y / this.cell);
+    // 单位所在格子的下标（钳在地图内）
+    index(x, y) {
+      let cx = (x / this.cell) | 0, cy = (y / this.cell) | 0;
       if (cx < 0) cx = 0; else if (cx >= this.gw) cx = this.gw - 1;
       if (cy < 0) cy = 0; else if (cy >= this.gh) cy = this.gh - 1;
-      const b = this.cells[cy * this.gw + cx];
-      if (b.length === 0) { this.used.push(b); this.ucx.push(cx); this.ucy.push(cy); }
+      return cy * this.gw + cx;
+    }
+    insert(u) {
+      this.put(u, this.index(u.x, u.y));
+    }
+    put(u, ci) {
+      const b = this.cells[ci];
+      if (b.length === 0) {
+        this.used.push(b);
+        const cy = (ci / this.gw) | 0;
+        this.ucx.push(ci - cy * this.gw);
+        this.ucy.push(cy);
+      }
       b.push(u);
     }
     // 所有中心距离 ≤ r 的单位（不过滤阵营和状态）
@@ -3379,6 +3397,8 @@ window.HD_SHEETS = {
         scanFree: 0,                // 这个时刻之前不用扫敌人（见 findTarget）
         taunt: null,                // 正在嘲讽它的冰龙
         tauntNext: 0,
+        findNext: 0,                // 人多时：这个时刻之前不重新找攻击目标
+        lod: (this.rng() * 2) | 0,  // 错开省算力的步子
       };
       C.place(u, x, y);
       this.units.push(u);
@@ -3397,13 +3417,29 @@ window.HD_SHEETS = {
       this.pending.push(u);
     }
     removeUnit(u) {
+      // 只做标记，统一在 compact() 里一次性从列表里拿掉（每死一个就 splice 一次在上万单位时很慢）
+      if (!u.dead) this.unitsDirty = true;
       u.dead = true;
-      const i = this.units.indexOf(u);
-      if (i >= 0) this.units.splice(i, 1);
       if (u.group) {
         u.group.members -= 1;
         if (u.group.members <= 0) this.sides[u.side].supplyUsed -= u.group.supply;
       }
+    }
+    compact() {
+      if (!this.unitsDirty) return;
+      this.unitsDirty = false;
+      const a = this.units;
+      let n = 0;
+      for (let i = 0; i < a.length; i++) if (!a[i].dead) a[n++] = a[i];
+      a.length = n;
+    }
+    // 当前单位列表的拷贝（复用缓冲区）：遍历途中新加的单位不在这一轮里
+    snapshot() {
+      const a = this.units, b = this.snapBuf === this.lastSnap ? (this.snapBuf2 || (this.snapBuf2 = [])) : (this.snapBuf || (this.snapBuf = []));
+      this.lastSnap = b;
+      b.length = a.length;
+      for (let i = 0; i < a.length; i++) b[i] = a[i];
+      return b;
     }
     removeBody(b) {
       const i = this.bodies.indexOf(b);
@@ -3542,11 +3578,13 @@ window.HD_SHEETS = {
       if (u.def.speed > 0) {
         u.retargetT -= dt;
         if (u.retargetT <= 0) {
-          u.retargetT = RETARGET;
+          // 场上人多时后面的兵反应慢一点：重新找目标的间隔跟着人数拉长
+          const n = this.units.length;
+          u.retargetT = n < LOD_N ? RETARGET : n < 2 * LOD_N ? RETARGET * 1.6 : RETARGET * 2.4;
           u.chase = this.chaseTarget(u);
           // 最近的敌人离攻击距离还差 150 以上：到下次重新找之前不会有人进得来，这段时间 findTarget 不用扫
           const far = this.chaseD - (u.range + u.radius + MAX_R + REACH);
-          u.scanFree = far > 150 && far < Infinity ? this.time + RETARGET + dt : 0;
+          u.scanFree = far > 150 && far < Infinity ? this.time + u.retargetT + dt : 0;
         }
       }
       if (u.def.hunter) {
@@ -3560,9 +3598,11 @@ window.HD_SHEETS = {
         }
       }
       if (C.trySkill(this, u) && (u.cast || u.charge)) return;
-      if (!u.swing) {
+      if (!u.swing && !(u.findNext > this.time)) {
         const t = this.findTarget(u);
         if (t) this.startSwing(u, t);
+        // 人多时没找到攻击目标的兵隔几步再找（错开，不是同一步一起找）
+        else if (this.units.length >= LOD_N) u.findNext = this.time + dt * (2 + u.lod);
       }
       if (u.swing) {
         this.swingStep(u, dt);
@@ -3590,13 +3630,14 @@ window.HD_SHEETS = {
       const units = this.units;
       for (let i = 0; i < units.length; i++) {
         const u = units[i];
-        g.insert(u);
-        if (!this.alive(u)) continue;
+        const ci = g.index(u.x, u.y);
+        g.put(u, ci);
+        if (u.dead || u.bones || u.pendingDeath || u.hp <= 0) continue;
         st.alive[u.side]++;
         if (u.swing) st.swing[u.side]++;
         if (u.ranged) this.rangedBy[u.side].push(u);
         if (scan) {
-          sg[u.side].insert(u);
+          sg[u.side].put(u, ci);
           if (u.def.taunt) tn[u.side].push(u);
           const h = this.has[u.side];
           h[u.uid] = (h[u.uid] || 0) + 1;
@@ -3750,7 +3791,9 @@ window.HD_SHEETS = {
         if (this.has[1].satan) C.autoSatan(this, 1);
       }
 
-      for (const u of this.units.slice()) {
+      const pre = this.snapshot();
+      for (let i = 0; i < pre.length; i++) {
+        const u = pre[i];
         if (u.dead) continue;
         C.tickStatuses(this, u, dt);
         if (u.bones) {
@@ -3770,11 +3813,23 @@ window.HD_SHEETS = {
         }
       }
 
-      for (const u of this.units.slice()) this.updateUnit(u, dt);
+      const list = this.snapshot();
+      // 人多时，后排闲着赶路的兵（附近没敌人、没在打）隔一步才动一次，动的那步走两步的距离
+      const heavy = list.length >= LOD_N, par = (this.sepTick || 0) & 1;
+      for (let i = 0; i < list.length; i++) {
+        const u = list[i];
+        if (heavy && !u.swing && !u.chase && !u.cast && !u.charge && u.scanFree > this.time) {
+          if (u.lod !== par) continue;
+          this.updateUnit(u, dt * 2);
+        } else this.updateUnit(u, dt);
+      }
 
-      this.buildGrid(false);      // 移动之后重建，给分离推挤用
-      this.separate();
-      this.buildGrid(false);      // 推挤之后重建，给后面的落地、区域、炮塔用
+      // 推挤直接用这一步开头建的网格：一步之内单位只挪几个像素，格子 96 比最大半径和 80 宽，基本不会漏配对。
+      // 场上单位很多时隔一步推一次（每次都把重叠完全推开，看不出区别）
+      this.sepTick = (this.sepTick || 0) + 1;
+      const nU = this.units.length;
+      if (nU < LOD_N || this.sepTick % (nU < 3 * LOD_N ? 2 : 3) === 0) this.separate();
+      this.buildGrid(false);      // 移动和推挤之后重建，给后面的落地、区域、炮塔用
 
       for (const p of this.projectiles) {
         if (p.done) continue;
@@ -3851,6 +3906,7 @@ window.HD_SHEETS = {
         C.onDeath(this, u);
         this.emit({ t: 'death', side: u.side, uid: u.uid, x: u.x, y: u.y });
       }
+      this.compact();
       // 尸体最多留 1500 具，超了把最早的清掉
       if (this.bodies.length > 1500) this.bodies.splice(0, this.bodies.length - 1200);
     }
@@ -3863,7 +3919,8 @@ window.HD_SHEETS = {
     }
     // 作弊菜单：清空一方场上所有单位（直接移除，不留尸体、不触发死亡特性）
     wipe(side) {
-      for (const u of this.units.slice()) if (u.side === side) this.removeUnit(u);
+      for (const u of this.units) if (u.side === side) this.removeUnit(u);
+      this.compact();
       this.bodies = this.bodies.filter((b) => b.side !== side);
       this.queues = this.queues.filter((q) => q.side !== side);
     }
@@ -4102,6 +4159,8 @@ window.HD_SHEETS = {
   const FLY_LIFT = 36;              // 飞行单位离地的高度（世界像素）
   const CULL = 90;                  // 视野外多留的余量（屏幕像素），精灵边缘不会突然消失
   const BODY_MAX = 400;             // 一帧最多画多少具尸体
+  const SPRITE_MAX = 1600;          // 精灵预算的上限：一帧最多画多少个普通单位的精灵，超出的画成阵营色小块（见 thinOut）
+  const SPRITE_MIN = 400;           // 手机很卡时预算最低降到这里
   const byY = (a, b) => a.y - b.y;
 
   const ELEM = { fire: '#ff8a3d', frost: '#7dd8ff', poison: '#8be05c', shadow: '#c86bff', holy: '#ffe38a' };
@@ -4112,6 +4171,8 @@ window.HD_SHEETS = {
     ['holyShield', '盾', '#ffe38a'], ['unyielding', '不', '#ffd166'], ['stun', '晕', '#ffd166'], ['root', '定', '#c9a46b'],
   ];
   const SIDE_COLOR = ['#6fd3ff', '#ff6b6b'];
+  // 撒旦和冰龙这种主角：缩远、人多都照常画精灵
+  const vip = (u) => !!u.def.cull || u.uid === 'satan';
   const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif';
 
   const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
@@ -4304,6 +4365,10 @@ window.HD_SHEETS = {
       // 每帧复用的缓冲区：要画的东西、血条。不每帧新建几千个小对象
       this.pool = [];
       this.ents = [];
+      this.dots = [];
+      this.keep = [];
+      this.budget = 1000;           // 当前精灵预算，adapt 里按帧时间上下调
+      this.budN = 0;
       this.bodyBuf = [];
       this.bars = [];             // 血条：x, y, w, h, frac, side 六个数一组
       this.base = 1;              // 画布的基础缩放 = 设备像素比 × 画质
@@ -4318,6 +4383,11 @@ window.HD_SHEETS = {
     // 帧慢、但脚本没花多少时间，说明慢在显卡填像素上，降分辨率才有用；慢在脚本上就不降（降了也白糊）
     adapt(dt, cpuMs) {
       const ms = dt * 1000;
+      // 精灵预算：连着卡就少画几个精灵，连着流畅再慢慢加回来
+      if (ms > 26) this.budN = Math.min(0, this.budN) - 1;
+      else if (ms < 18) this.budN = Math.max(0, this.budN) + 1;
+      if (this.budN < -20) { this.budget = Math.max(SPRITE_MIN, this.budget * 0.8 | 0); this.budN = 0; }
+      else if (this.budN > 150) { this.budget = Math.min(SPRITE_MAX, this.budget * 1.15 | 0); this.budN = 0; }
       if (ms > 24 && cpuMs < ms * 0.5) this.slowN++; else this.slowN = Math.max(0, this.slowN - 1);
       if (ms < 18.5) this.fastN++; else this.fastN = 0;
       if (this.slowN > 45 && this.q > 0.6) {
@@ -4494,6 +4564,7 @@ window.HD_SHEETS = {
       this.ctx.imageSmoothingEnabled = false;
       for (let i = 0; i < bodies.length; i++) this.drawBody(bodies[i]);
       this.drawShadows(ents);
+      this.drawDots();
       // 单位和水晶按 y 排序（远的先画）。缩得很远又有几千个时不排：精灵只有几个像素，谁压谁看不出来，
       // 不排的话顺序每帧都一样，也不会闪
       if (this.cam.zoom >= 0.2 || ents.length < 1500) ents.sort(byY);
@@ -4591,7 +4662,7 @@ window.HD_SHEETS = {
         const py = gy - (u.flying ? (u.def.lift || FLY_LIFT) * z : 0);
         const cull = Math.max(CULL, (u.def.cull || 0) * z);     // 冰龙的精灵很大，视野外要多留一截
         if (gx < -cull || gx > w + cull || py < -cull || py > h + cull) continue;
-        if (occ && !u.giant && !u.def.cull) {
+        if (occ && !vip(u)) {
           const ix = ((gx / c) | 0) + 1, iy = ((py / c) | 0) + 1;
           if (ix >= 0 && ix < cw && iy >= 0 && iy < ch) {
             const k = (iy * cw + ix) * 2 + u.side;
@@ -4602,6 +4673,7 @@ window.HD_SHEETS = {
         put(0, u, u.y, gx, py, gy);
       }
       ents.length = n;
+      this.thinOut(ents);
       // 尸体：视野里最多画 BODY_MAX 具（从最新的往回数），一下子死了几千个也不会拖慢
       const bodies = this.bodyBuf;
       bodies.length = 0;
@@ -4613,6 +4685,78 @@ window.HD_SHEETS = {
         bodies.push({ b, sx: gx, sy: gy });
       }
       return { ents, bodies };
+    }
+
+    // 精灵太多时：正在打或刚挨打的优先画精灵，然后按屏幕格子每格每阵营留一个，剩下的进 dots 画成小色块。
+    // 格子大小按“满屏均匀铺开正好 SPRITE_MAX 个”算，人挤在一起的地方保留得少，散开的地方基本不受影响
+    thinOut(ents) {
+      const dots = this.dots;
+      dots.length = 0;
+      let cnt = 0;
+      for (let i = 0; i < ents.length; i++) if (ents[i].k === 0 && !vip(ents[i].o)) cnt++;
+      const budget = this.budget;
+      if (cnt <= budget) return;
+      const w = this.w, h = this.h;
+      // 格子先取小一点，留下的还是太多就放大再来（人挤成团时格子要更小才留得够）
+      let c = Math.max(3, Math.sqrt((w * h * 2) / budget) / 3);
+      for (let tries = 0; tries < 5; tries++) {
+        if (this.thinPass(ents, c, true) <= budget) break;
+        c *= 1.35;
+      }
+      this.thinPass(ents, c, false);
+    }
+    // 按格子大小 c 筛一遍；dry 时只数能留下几个
+    thinPass(ents, c, dry) {
+      const w = this.w, h = this.h, dots = this.dots;
+      const cw = Math.ceil(w / c) + 2, ch = Math.ceil(h / c) + 2, size = cw * ch * 2;
+      if (!this.occ2 || this.occ2.length < size) this.occ2 = new Uint8Array(size);
+      else this.occ2.fill(0, 0, size);
+      const occ = this.occ2, keep = this.keep;
+      keep.length = 0;
+      let kept = 0;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < ents.length; i++) {
+          const it = ents[i];
+          if (it.k !== 0) { if (pass === 0) keep.push(it); continue; }
+          const u = it.o;
+          if (vip(u)) { if (pass === 0) keep.push(it); continue; }
+          const busy = !!u.swing || u.hitT < 0.3 || !!u.cast || !!u.charge;
+          if (busy !== (pass === 0)) continue;
+          let ix = ((it.sx / c) | 0) + 1, iy = ((it.sy / c) | 0) + 1;
+          if (ix < 0) ix = 0; else if (ix >= cw) ix = cw - 1;
+          if (iy < 0) iy = 0; else if (iy >= ch) iy = ch - 1;
+          const k = (iy * cw + ix) * 2 + u.side;
+          if (occ[k]) { if (!dry) dots.push(it); continue; }
+          occ[k] = 1;
+          kept++;
+          if (!dry) keep.push(it);
+        }
+      }
+      if (dry) return kept;
+      for (let i = 0; i < keep.length; i++) ents[i] = keep[i];
+      ents.length = keep.length;
+      keep.length = 0;
+      return kept;
+    }
+    // 被省掉精灵的单位：每个阵营一条路径，画成和身体差不多大的色块
+    drawDots() {
+      const dots = this.dots;
+      if (!dots.length) return;
+      const ctx = this.ctx, z = this.cam.zoom;
+      ctx.globalAlpha = 0.85;
+      for (let s = 0; s < 2; s++) {
+        ctx.beginPath();
+        let any = false;
+        for (let i = 0; i < dots.length; i++) {
+          const it = dots[i], u = it.o;
+          if (u.side !== s) continue;
+          const r = Math.max(1.5, u.radius * z * 0.8), hh = r * 1.6;
+          ctx.rect(it.sx - r, it.sy - hh, r * 2, hh);
+          any = true;
+        }
+        if (any) { ctx.fillStyle = s ? '#c9484d' : '#4a9fd0'; ctx.fill(); }
+      }
+      ctx.globalAlpha = 1;
     }
 
     // 所有单位的地面阴影一次画完：地面单位一条路径、飞行单位一条路径，各填一次（原来是一个单位填一次）
@@ -4857,7 +5001,8 @@ window.HD_SHEETS = {
       const bw = detail ? Math.max(24, sh.bodyW * S * 1.05) : Math.max(6, sh.bodyW * S * 0.9), bh = detail ? Math.max(2, 4 * z) : 1.5;
       const bx = px - bw / 2, by = top - bh;
       const frac = u.hp >= u.maxHp ? 1 : Math.max(0, u.hp / u.maxHp);
-      if (detail || frac < 1) this.bars.push(bx, by, bw, bh, frac, u.side);
+      // 精灵预算生效（人太多）时只给撒旦和冰龙画血条，不然整屏都是血条
+      if ((detail || frac < 1) && (!this.dots.length || vip(u))) this.bars.push(bx, by, bw, bh, frac, u.side);
       // 下面这些只有身上挂着状态或者在蓄力才会有，先看一眼有没有，大多数单位到这里就结束了
       let hasSt = false;
       for (const id in u.st) { hasSt = true; break; }

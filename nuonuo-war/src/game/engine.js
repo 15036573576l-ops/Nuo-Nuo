@@ -10,6 +10,7 @@
   const MAX_R = 40;         // 单位半径上限，查询范围要多留这一截
   const REACH = 4;          // 攻击距离的余量（中心到中心）
   const RETARGET = 0.25;    // 追击目标的重新计算间隔（秒）
+  const LOD_N = 3000;       // 场上单位超过这个数开始省算力：隔步推挤、放慢重新找目标
   const GROUP_GAP_X = 26;   // 同一组单位往后排的间距
   const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
   const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
@@ -75,12 +76,24 @@
       if (cx < 0 || cy < 0 || cx >= this.gw || cy >= this.gh) return null;
       return this.cells[cy * this.gw + cx];
     }
-    insert(u) {
-      let cx = Math.floor(u.x / this.cell), cy = Math.floor(u.y / this.cell);
+    // 单位所在格子的下标（钳在地图内）
+    index(x, y) {
+      let cx = (x / this.cell) | 0, cy = (y / this.cell) | 0;
       if (cx < 0) cx = 0; else if (cx >= this.gw) cx = this.gw - 1;
       if (cy < 0) cy = 0; else if (cy >= this.gh) cy = this.gh - 1;
-      const b = this.cells[cy * this.gw + cx];
-      if (b.length === 0) { this.used.push(b); this.ucx.push(cx); this.ucy.push(cy); }
+      return cy * this.gw + cx;
+    }
+    insert(u) {
+      this.put(u, this.index(u.x, u.y));
+    }
+    put(u, ci) {
+      const b = this.cells[ci];
+      if (b.length === 0) {
+        this.used.push(b);
+        const cy = (ci / this.gw) | 0;
+        this.ucx.push(ci - cy * this.gw);
+        this.ucy.push(cy);
+      }
       b.push(u);
     }
     // 所有中心距离 ≤ r 的单位（不过滤阵营和状态）
@@ -595,6 +608,8 @@
         scanFree: 0,                // 这个时刻之前不用扫敌人（见 findTarget）
         taunt: null,                // 正在嘲讽它的冰龙
         tauntNext: 0,
+        findNext: 0,                // 人多时：这个时刻之前不重新找攻击目标
+        lod: (this.rng() * 2) | 0,  // 错开省算力的步子
       };
       C.place(u, x, y);
       this.units.push(u);
@@ -613,13 +628,29 @@
       this.pending.push(u);
     }
     removeUnit(u) {
+      // 只做标记，统一在 compact() 里一次性从列表里拿掉（每死一个就 splice 一次在上万单位时很慢）
+      if (!u.dead) this.unitsDirty = true;
       u.dead = true;
-      const i = this.units.indexOf(u);
-      if (i >= 0) this.units.splice(i, 1);
       if (u.group) {
         u.group.members -= 1;
         if (u.group.members <= 0) this.sides[u.side].supplyUsed -= u.group.supply;
       }
+    }
+    compact() {
+      if (!this.unitsDirty) return;
+      this.unitsDirty = false;
+      const a = this.units;
+      let n = 0;
+      for (let i = 0; i < a.length; i++) if (!a[i].dead) a[n++] = a[i];
+      a.length = n;
+    }
+    // 当前单位列表的拷贝（复用缓冲区）：遍历途中新加的单位不在这一轮里
+    snapshot() {
+      const a = this.units, b = this.snapBuf === this.lastSnap ? (this.snapBuf2 || (this.snapBuf2 = [])) : (this.snapBuf || (this.snapBuf = []));
+      this.lastSnap = b;
+      b.length = a.length;
+      for (let i = 0; i < a.length; i++) b[i] = a[i];
+      return b;
     }
     removeBody(b) {
       const i = this.bodies.indexOf(b);
@@ -758,11 +789,13 @@
       if (u.def.speed > 0) {
         u.retargetT -= dt;
         if (u.retargetT <= 0) {
-          u.retargetT = RETARGET;
+          // 场上人多时后面的兵反应慢一点：重新找目标的间隔跟着人数拉长
+          const n = this.units.length;
+          u.retargetT = n < LOD_N ? RETARGET : n < 2 * LOD_N ? RETARGET * 1.6 : RETARGET * 2.4;
           u.chase = this.chaseTarget(u);
           // 最近的敌人离攻击距离还差 150 以上：到下次重新找之前不会有人进得来，这段时间 findTarget 不用扫
           const far = this.chaseD - (u.range + u.radius + MAX_R + REACH);
-          u.scanFree = far > 150 && far < Infinity ? this.time + RETARGET + dt : 0;
+          u.scanFree = far > 150 && far < Infinity ? this.time + u.retargetT + dt : 0;
         }
       }
       if (u.def.hunter) {
@@ -776,9 +809,11 @@
         }
       }
       if (C.trySkill(this, u) && (u.cast || u.charge)) return;
-      if (!u.swing) {
+      if (!u.swing && !(u.findNext > this.time)) {
         const t = this.findTarget(u);
         if (t) this.startSwing(u, t);
+        // 人多时没找到攻击目标的兵隔几步再找（错开，不是同一步一起找）
+        else if (this.units.length >= LOD_N) u.findNext = this.time + dt * (2 + u.lod);
       }
       if (u.swing) {
         this.swingStep(u, dt);
@@ -806,13 +841,14 @@
       const units = this.units;
       for (let i = 0; i < units.length; i++) {
         const u = units[i];
-        g.insert(u);
-        if (!this.alive(u)) continue;
+        const ci = g.index(u.x, u.y);
+        g.put(u, ci);
+        if (u.dead || u.bones || u.pendingDeath || u.hp <= 0) continue;
         st.alive[u.side]++;
         if (u.swing) st.swing[u.side]++;
         if (u.ranged) this.rangedBy[u.side].push(u);
         if (scan) {
-          sg[u.side].insert(u);
+          sg[u.side].put(u, ci);
           if (u.def.taunt) tn[u.side].push(u);
           const h = this.has[u.side];
           h[u.uid] = (h[u.uid] || 0) + 1;
@@ -966,7 +1002,9 @@
         if (this.has[1].satan) C.autoSatan(this, 1);
       }
 
-      for (const u of this.units.slice()) {
+      const pre = this.snapshot();
+      for (let i = 0; i < pre.length; i++) {
+        const u = pre[i];
         if (u.dead) continue;
         C.tickStatuses(this, u, dt);
         if (u.bones) {
@@ -986,11 +1024,23 @@
         }
       }
 
-      for (const u of this.units.slice()) this.updateUnit(u, dt);
+      const list = this.snapshot();
+      // 人多时，后排闲着赶路的兵（附近没敌人、没在打）隔一步才动一次，动的那步走两步的距离
+      const heavy = list.length >= LOD_N, par = (this.sepTick || 0) & 1;
+      for (let i = 0; i < list.length; i++) {
+        const u = list[i];
+        if (heavy && !u.swing && !u.chase && !u.cast && !u.charge && u.scanFree > this.time) {
+          if (u.lod !== par) continue;
+          this.updateUnit(u, dt * 2);
+        } else this.updateUnit(u, dt);
+      }
 
-      this.buildGrid(false);      // 移动之后重建，给分离推挤用
-      this.separate();
-      this.buildGrid(false);      // 推挤之后重建，给后面的落地、区域、炮塔用
+      // 推挤直接用这一步开头建的网格：一步之内单位只挪几个像素，格子 96 比最大半径和 80 宽，基本不会漏配对。
+      // 场上单位很多时隔一步推一次（每次都把重叠完全推开，看不出区别）
+      this.sepTick = (this.sepTick || 0) + 1;
+      const nU = this.units.length;
+      if (nU < LOD_N || this.sepTick % (nU < 3 * LOD_N ? 2 : 3) === 0) this.separate();
+      this.buildGrid(false);      // 移动和推挤之后重建，给后面的落地、区域、炮塔用
 
       for (const p of this.projectiles) {
         if (p.done) continue;
@@ -1067,6 +1117,7 @@
         C.onDeath(this, u);
         this.emit({ t: 'death', side: u.side, uid: u.uid, x: u.x, y: u.y });
       }
+      this.compact();
       // 尸体最多留 1500 具，超了把最早的清掉
       if (this.bodies.length > 1500) this.bodies.splice(0, this.bodies.length - 1200);
     }
@@ -1079,7 +1130,8 @@
     }
     // 作弊菜单：清空一方场上所有单位（直接移除，不留尸体、不触发死亡特性）
     wipe(side) {
-      for (const u of this.units.slice()) if (u.side === side) this.removeUnit(u);
+      for (const u of this.units) if (u.side === side) this.removeUnit(u);
+      this.compact();
       this.bodies = this.bodies.filter((b) => b.side !== side);
       this.queues = this.queues.filter((q) => q.side !== side);
     }
