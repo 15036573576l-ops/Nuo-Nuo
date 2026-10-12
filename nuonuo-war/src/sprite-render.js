@@ -202,21 +202,21 @@
   //   flash: true    受击白闪
   //   alpha: 0~1     透明度（尸体淡出、地下蠕虫）
   //   noShadow: true 不画精灵自带的脚下影子（渲染层自己画了地面阴影时用，避免画两次）
-  function drawSheetHero(ctx, hero, state, t, x, y, s, face, opt) {
-    const sh = window.HD_SHEETS[hero.sheet];
-    const o = opt || {};
+  // 挑帧：结果写进 PICK（a 是用哪条动画，idx 是第几帧，release 是不是出手帧），不新建对象
+  const PICK = { a: null, idx: 0, release: false };
+  function pickFrame(sh, aspd, state, t, once, period) {
     const key = state === 'run' ? 'run' : state === 'attack' ? 'attack' : state === 'hit' ? 'hit' : state === 'death' ? 'death' : 'idle';
     let a = sh.anims[key];
     let idx, release = false;
-    if (state === 'death' || (o.once && (state === 'hit' || state === 'attack'))) {
+    if (state === 'death' || (once && (state === 'hit' || state === 'attack'))) {
       idx = Math.min(a.n - 1, Math.floor(t * a.fps));
-    } else if (o.period && state === 'attack') {
-      idx = Math.min(a.n - 1, Math.floor((t / o.period) * a.n));
+    } else if (period && state === 'attack') {
+      idx = Math.min(a.n - 1, Math.floor((t / period) * a.n));
       release = idx === a.release;
     } else if (state === 'attack' || state === 'hit') {
       const dur = a.n / a.fps;
-      const period = state === 'attack' ? Math.max(dur, 1 / hero.aspd) : Math.max(dur, 1.0);
-      const local = t % period;
+      const per = state === 'attack' ? Math.max(dur, 1 / aspd) : Math.max(dur, 1.0);
+      const local = t % per;
       if (local < dur) {
         idx = Math.min(a.n - 1, Math.floor(local * a.fps));
         release = state === 'attack' && idx === a.release;
@@ -227,10 +227,31 @@
     } else {
       idx = Math.floor(t * a.fps) % a.n;
     }
+    PICK.a = a; PICK.idx = idx; PICK.release = release;
+    return PICK;
+  }
+
+  // 对局里画单位用的快速画法：直接设变换矩阵，不 save / restore，不改透明度和平滑开关（调用方自己管）。
+  // base 是画布的基础缩放（设备像素比 × 画质），画完调用方要把变换设回 base。返回 false 表示图还没加载好
+  function drawSheetFast(ctx, sh, aspd, state, t, x, y, s, face, once, period, flash, base) {
+    const p = pickFrame(sh, aspd, state, t, once, period);
+    const im = img(p.a.src);
+    if (!im || !im.complete) return false;
+    const k = base * s;
+    ctx.setTransform(face * k, 0, 0, k, base * Math.round(x), base * Math.round(y));
+    ctx.drawImage(flash ? (brightOf(im) || im) : im, p.idx * sh.fw, 0, sh.fw, sh.fh, -sh.cx, -sh.foot, sh.fw, sh.fh);
+    return true;
+  }
+
+  function drawSheetHero(ctx, hero, state, t, x, y, s, face, opt) {
+    const sh = window.HD_SHEETS[hero.sheet];
+    const o = opt || {};
+    const pk = pickFrame(sh, hero.aspd, state, t, o.once, o.period);
+    const a = pk.a, idx = pk.idx, release = pk.release;
     const im = img(a.src);
     if (!im || !im.complete) return {};
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = !!sh.smooth;     // 像素画不平滑；渲染出来的冰龙要平滑
     ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
     ctx.translate(Math.round(x), Math.round(y));
     ctx.scale(face * s, s);
@@ -261,5 +282,5 @@
     })));
   }
 
-  window.SpriteRender = { drawHero, spriteSize, preload, img };
+  window.SpriteRender = { drawHero, drawSheetFast, spriteSize, preload, img };
 })();

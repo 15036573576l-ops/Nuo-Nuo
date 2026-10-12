@@ -270,7 +270,7 @@ projectile = { sprite, side, el, x0, y0, x1, y1, h0, tgt, homing, t, dur, done, 
    - `eng.setCrystal(side, hp, maxHp)`：水晶血量和上限，上限从 `rules.map.crystalHp` 读。
    - 菜单依赖 `window.GameUI.state.eng`，所以 `ui.js` 的 `GameUI` 全局要保留。
    - 旧代码里 `R.lane.crystalHp` 要改成 `R.map.crystalHp`。
-2. **撒旦**（`src/special.js` 的 `SPECIAL_UNITS`，只有玩家能出：`playerOnly`；出兵栏最后一格；X 键）。
+2. **撒旦**（`src/special.js` 的 `SPECIAL_UNITS`，玩家能自己出：`playerOnly`；电脑只能被作弊派送：`cheatSend`，`canSpawn(side, uid, cheat)` 的第三个参数；出兵栏最后一格；X 键）。没有数量上限（`maxOnField` 已去掉，自己买、免费召唤、批量出都不限）。手动技能场上每个撒旦都一起放。
    - 属性：2 万血、重甲、魔法溅射 130、`ccImmune`、`scale: 1.2`、`tags: ['giant']`。
    - 被动：免疫眩晕、冻结、定身、寒霜、击退、易伤、衰弱；炼狱光环（200 范围每 0.5 秒 30 火伤 + 1 层灼烧，`satanAura`）；横扫（每下溅射 + 3 层灼烧 + 衰弱）；不灭（第一次死亡原地复活，回满血，无敌 3 秒，`reviveUsed`）。
    - 手动技能（`manualSkills`，J / K / L，冷却放在 `sides[s].manualCd[3]`，`satanNoCd` 时冷却为 0）：

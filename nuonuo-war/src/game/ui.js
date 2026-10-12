@@ -11,13 +11,13 @@
   const LEVELS = window.AI_LEVELS;
   const Render = window.Render;
 
-  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'X'];
-  const TIER_COLOR = { T3: '#9aa4b8', T2: '#6fd3ff', T1: '#b58cff', 'T0.5': '#ffb36b', T0: '#ffd166' };
+  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'X', 'V'];
+  const TIER_COLOR = { T3: '#9aa4b8', T2: '#6fd3ff', T1: '#b58cff', 'T0.5': '#ffb36b', T0: '#ffd166', SSSSSSS: '#9fe8ff' };
   const DMG = { slash: '斩击', pierce: '穿刺', magic: '魔法', siege: '攻城' };
   const ARMOR = { none: '无甲', light: '轻甲', heavy: '重甲' };
   const ELEM = { fire: '火', frost: '冰', poison: '毒', shadow: '暗', holy: '圣' };
   const REASON = {
-    gold: '金币不够', supply: '人口已满', cooldown: '冷却中', max: '场上数量已达上限', ended: '对局已结束', no: '没有这个兵种',
+    gold: '金币不够', supply: '人口已满', max: '场上数量已达上限', ended: '对局已结束', no: '没有这个兵种',
   };
   const PAN_SPEED = 900;        // 键盘平移：屏幕像素每秒
   const ZOOM_RATE = 1.2;        // 按住缩放键时，每秒的对数缩放量
@@ -49,6 +49,7 @@
   };
   const normKey = (e) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
   const fmtCount = (n) => (n >= 1e4 ? `${+(n / 1e4).toFixed(1)} 万` : String(n));
+  const fmtBig = (n) => (n >= 1e8 ? `${+(n / 1e8).toFixed(2)}亿` : n >= 1e4 ? `${+(n / 1e4).toFixed(1)}万` : String(n));
 
   const state = {
     eng: null,
@@ -65,14 +66,22 @@
     panKeys: new Set(),
     zoomKeys: new Set(),
     batch: null,        // 批量出兵模式：{ side, count, pendingUid, pendingT }，由作弊菜单打开
+    mult: 1,            // 点一下卡片出几组：1 或 10（出兵栏最左边的 ×10 开关，G 键）
   };
 
   // ---------- 出兵栏 ----------
   function buildRoster() {
     const roster = $('roster');
     roster.innerHTML = '';
+    // ×10 开关：固定在出兵栏最左边，横着划兵种时它不动
+    const mult = el('button', 'card mult');
+    mult.id = 'btn-mult';
+    mult.title = '开着的时候点一下兵种出 10 组（G）';
+    mult.innerHTML = '<b>×10</b><span>连出</span>';
+    mult.addEventListener('click', toggleMult);
+    roster.appendChild(mult);
     ALL.forEach((d, i) => {
-      const card = el('div', d.playerOnly ? 'card evil' : 'card');
+      const card = el('div', d.cardClass ? `card ${d.cardClass}` : d.playerOnly ? 'card evil' : 'card');
       card.dataset.uid = d.id;
       card.style.setProperty('--tier', TIER_COLOR[d.tier] || '#888');
       card.appendChild(el('span', 'key', KEYS[i]));
@@ -84,12 +93,10 @@
       card.appendChild(wrap);
       card.appendChild(el('div', 'nm', d.name));
       const cost = el('div', 'cost');
-      cost.innerHTML = `<i class="coin"></i><b>${d.cost}</b><span>人口${d.supply}</span>`;
+      cost.innerHTML = `<i class="coin"></i><b>${fmtBig(d.cost)}</b><span>人口${d.supply}</span>`;
       card.appendChild(cost);
-      const cd = el('div', 'cd');
-      card.appendChild(cd);
       roster.appendChild(card);
-      state.cards.set(d.id, { card, av, cd, cost, def: d, drawn: false });
+      state.cards.set(d.id, { card, av, cost, def: d, drawn: false });
 
       card.addEventListener('pointerdown', (e) => onCardDown(e, d.id));
       card.addEventListener('pointermove', onCardMove);
@@ -141,26 +148,32 @@
     hideTip();
   }
 
-  // 点兵种（卡片或数字键）：平时出一个；批量出兵模式下是批量出兵
+  // 点兵种（卡片或数字键）：平时出一组，×10 开着出 10 组；批量出兵模式下是批量出兵
   function pick(uid) {
     if (state.batch) batchPick(uid);
     else spawn(uid);
   }
 
-  // 出兵：成功闪绿，失败提示原因并闪红
+  // 出兵：成功闪绿，失败提示原因并闪红。点了就算“选中”，钱不够也算：到统一派兵的时候出的就是它
   function spawn(uid) {
     const eng = state.eng;
     const c = state.cards.get(uid);
     if (!eng || !c) return;
     if (state.paused || !state.running) return;
-    const why = eng.canSpawn(0, uid);
-    if (why === 'ok') {
-      eng.spawn(0, uid);
+    eng.setPick(0, uid);
+    let n = 0;
+    while (n < state.mult && eng.spawn(0, uid)) n++;
+    if (n) {
       flash(c.card, 'flash');
+      if (n < state.mult) toast(`只出了 ${n} 组：${REASON[eng.canSpawn(0, uid)] || '出不了更多'}`);
     } else {
       flash(c.card, 'bad');
-      toast(REASON[why] || '现在不能出兵');
+      toast(`${REASON[eng.canSpawn(0, uid)] || '现在不能出兵'}（已选中，统一派兵时出）`);
     }
+  }
+  function toggleMult() {
+    state.mult = state.mult === 1 ? 10 : 1;
+    $('btn-mult').classList.toggle('on', state.mult > 1);
   }
   function flash(card, cls) {
     card.classList.remove('flash', 'bad');
@@ -170,7 +183,7 @@
   }
 
   // ---------- 批量出兵（作弊菜单打开，见 cheat-ui.js） ----------
-  // 进入后顶部出现提示条，点下方兵种就按设定的数量批量出兵，不扣金币、人口和冷却。
+  // 进入后顶部出现提示条，点下方兵种就按设定的数量批量出兵，不扣金币和人口。
   // 数量 ≥ 1000 时要连点两次同一个兵种确认，防止误触出一大片。按 Esc 或提示条上的“取消”退出
   function armBatch(side, count) {
     const eng = state.eng;
@@ -189,8 +202,8 @@
     const d = ALL.find((x) => x.id === uid);
     const c = state.cards.get(uid);
     const who = b.side === 0 ? '我方' : '电脑';
-    if (d.maxOnField) { toast(`${d.name}一次只能有一个，不能批量出`); return; }
-    if (d.playerOnly && b.side !== 0) { toast(`${d.name}只能我方使用`); return; }
+    if (d.maxOnField) { toast(`${d.name}不能批量出`); return; }
+    if (d.playerOnly && b.side !== 0 && !d.cheatSend) { toast(`${d.name}只能我方使用`); return; }
     const now = performance.now();
     if (b.count >= BIG_BATCH && !(b.pendingUid === uid && now < b.pendingT)) {
       b.pendingUid = uid;
@@ -248,8 +261,8 @@
     const elem = d.element ? ELEM[d.element] : '无';
     return `
       <h3>${d.name} <small>${d.title} · ${d.tier}</small></h3>
-      <div class="meta">${d.role} · 💰${d.cost} · 人口${d.supply} · 冷却${d.cooldown} 秒${d.count > 1 ? ` · 一次 ${d.count} 只` : ''}</div>
-      <div class="meta">${DMG[d.dmg]} → ${ARMOR[d.armor]} · 元素：${elem} · 射程 ${d.range} · 移速 ${d.speed} · 生命 ${d.hp}</div>
+      <div class="meta">${d.role} · 💰${fmtBig(d.cost)} · 人口${d.supply}${d.count > 1 ? ` · 一次 ${d.count} 只` : ''}</div>
+      <div class="meta">${DMG[d.dmg]} → ${ARMOR[d.armor]} · 元素：${elem} · 射程 ${d.range} · 移速 ${d.speed} · 生命 ${fmtBig(d.hp)}</div>
       ${traits}
       ${skill}
       <div class="meta">克制：${d.strongVs.join('、')}</div>
@@ -286,7 +299,7 @@
       if (!im || !im.complete || !im.naturalWidth) continue;
       const g = c.av.getContext('2d');
       g.clearRect(0, 0, 48, 48);
-      g.imageSmoothingEnabled = false;
+      g.imageSmoothingEnabled = !!sh.smooth;
       const sw = Math.min(sh.fw, Math.max(20, sh.bodyW * 2.1));
       const shh = Math.min(sh.fh, Math.max(20, sh.bodyH * 1.9));
       const sx = Math.max(0, Math.min(sh.fw - sw, sh.cx - sw / 2));
@@ -301,16 +314,19 @@
   function updateRoster() {
     const eng = state.eng;
     const S = eng ? eng.sides[0] : null;
-    const batch = !!state.batch;    // 批量出兵不看金币、人口和冷却，卡片全亮、不画冷却遮罩
+    const batch = !!state.batch;    // 批量出兵不看金币和人口，卡片全亮
     for (const c of state.cards.values()) {
       const d = c.def;
-      // 作弊“出兵无冷却”开着时不画冷却遮罩（canSpawn 也忽略冷却，按钮是亮的）
-      const left = batch || !S || eng.cheats.noCd ? 0 : S.cdLeft[d.id] || 0;
-      c.cd.style.height = `${Math.round((left / d.cooldown) * 100)}%`;
       const ok = batch ? true : eng ? eng.canSpawn(0, d.id) === 'ok' : false;
       if (c.ok !== ok) {
         c.ok = ok;
         c.card.classList.toggle('no', !ok);
+      }
+      // 选中的兵种（统一派兵时出它）描一圈边
+      const picked = !!S && S.pick === d.id;
+      if (c.picked !== picked) {
+        c.picked = picked;
+        c.card.classList.toggle('picked', picked);
       }
     }
   }
@@ -336,6 +352,9 @@
     $('pop-fill').style.width = `${Math.round(popFrac * 100)}%`;
     $('pop-fill').classList.toggle('warn', popFrac > 0.9);
     setText('clock', fmtTime(eng.time));
+    // 统一派兵倒计时 + 到时候出什么
+    const pd = S.pick ? ALL.find((d) => d.id === S.pick) : null;
+    setText('wave', `派兵 ${Math.ceil(eng.waveLeft())}s · ${pd ? pd.name : '未选'}`);
     const alive = eng.stat ? eng.stat.alive : [0, 0];
     const wait = [eng.queued(0), eng.queued(1)];
     setText('alive-me', `在场 ${alive[0]}${wait[0] ? ` · 待命 ${fmtCount(wait[0])}` : ''}`);
@@ -463,6 +482,7 @@
       if (e.code === 'Space') { e.preventDefault(); togglePause(); return; }
       if (low === 'z') { toggleSpeed(); return; }
       const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      if (k === 'G') { toggleMult(); return; }
       const i = KEYS.indexOf(k);
       if (i >= 0 && i < ALL.length) { pick(ALL[i].id); return; }
       if (window.GameUI.onKey) window.GameUI.onKey(k, e);
@@ -562,11 +582,18 @@
     applyKeys(dt);
     const eng = state.eng;
     if (eng) {
+      const c0 = performance.now();
       if (state.running && !state.paused && !eng.ended) eng.update(dt);
       const events = eng.drainEvents();
       rv.ingest(events);
       if (events.some((e) => e.t === 'end')) state.endAt = now + 1600;
+      for (const ev of events) {
+        if (ev.t !== 'wave' || ev.side !== 0) continue;
+        const d = ALL.find((x) => x.id === ev.uid);
+        toast(`统一派兵：${d.name} ×${ev.n * d.count}`);
+      }
       rv.draw(eng, dt);
+      if (state.running && !state.paused) rv.adapt(dt, performance.now() - c0);
       updateHud();
       updateRoster();
       if (window.GameUI.onFrame) window.GameUI.onFrame(eng);
@@ -594,6 +621,8 @@
     state.renderer = new Render.Renderer($('cv'));
     resize();
     window.addEventListener('resize', resize);
+    // 画布尺寸跟着它自己的排版走：启动时还没排版、字体或布局后来才变、手机地址栏收放，都会改尺寸，光靠 resize 事件会漏掉
+    if (window.ResizeObserver) new ResizeObserver(resize).observe($('cv'));
     bindCamera();
     bindKeys();
     bindMenus();

@@ -12,6 +12,24 @@
 
 测试：`node tools/headless_test.js`（机制断言、技能场景、撒旦、规模压力、AI 对 AI 20 局）。
 
+出兵没有冷却。每 60 秒一次统一派兵：双方各自把金币全换成最后选中的兵种（平时也可以随时自己出）。出兵栏最左边的 ×10 开着时点一下出 10 组。
+
+特殊单位（`src/special.js`，只有玩家能出）：
+
+- 撒旦：`X` 召唤，`J K L` 手动技能。作弊派送给电脑的撒旦会自己放技能。没有数量上限。电脑自己买不了，只能被作弊菜单“派送撒旦给电脑”送过去。
+- 冰龙：`V` 召唤，50 万金币，不占人口、不限数量，数值是撒旦的 1000 倍。`B N M` 手动技能（振翼、咆哮、暴风雪）。
+  冰龙走在地上，能被打到。它往右走，哪边有敌军就追哪边（往左也追）；场上还有敌军时不推水晶，全灭了才去推。
+  画面右侧的“冰龙打水晶”按钮（`H`）关掉以后，冰龙的攻击和技能都打不到敌方水晶。
+
+冰龙的图是从三维模型渲染出来的，重新出图：
+
+```
+npm i three@0.128.0 playwright
+node tools/render_frostwing.js /tmp/frostwing-frames
+python3 tools/build_frostwing.py /tmp/frostwing-frames
+python3 tools/build_hd.py && python3 tools/build_game.py
+```
+
 契约见 `docs/PLANE_SPEC.md`，实现说明见 `docs/IMPLEMENTATION.md`，规则上的取舍见 `docs/QUESTIONS.md`。
 
 ## 图鉴

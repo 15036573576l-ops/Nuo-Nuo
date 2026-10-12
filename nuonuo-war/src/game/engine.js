@@ -10,6 +10,7 @@
   const MAX_R = 40;         // 单位半径上限，查询范围要多留这一截
   const REACH = 4;          // 攻击距离的余量（中心到中心）
   const RETARGET = 0.25;    // 追击目标的重新计算间隔（秒）
+  const LOD_N = 3000;       // 场上单位超过这个数开始省算力：隔步推挤、放慢重新找目标
   const GROUP_GAP_X = 26;   // 同一组单位往后排的间距
   const GROUP_GAP_Y = 40;   // 同一组单位纵向的间距：一组铺开，不挤成一条线
   const MASS_GAP = 26;      // 批量出兵：相邻单位的间距（纵向每行一个，横向每列一排）
@@ -46,43 +47,63 @@
     if (def.tags.indexOf('giant') >= 0) r = Math.max(30, r);
     return r;
   }
-  function keyOf(cx, cy) { return (cx + 4096) * 8192 + (cy + 4096); }
-
   // 相邻格子的方向：右、右下、下、左下（配上它们的反方向正好是 8 邻格），用来每对只访问一次
   const FWD = [1, 0, 1, 1, 0, 1, -1, 1];
 
-  // 空间哈希网格：只存单位引用。每步开始重建；分离推挤前后各重建一次。
+  // 空间网格：只存单位引用。每步开始重建；分离推挤前后各重建一次。
+  // 地图大小是固定的，格子直接放在一个平铺的数组里（下标 = cy * gw + cx），比按坐标查哈希表快得多。
+  // 单位不会离开地图（place 会钳住），万一坐标越界就归到最边上那一格
   class Grid {
     constructor(cell = CELL) {
       this.cell = cell;
-      this.map = new Map();
+      this.gw = Math.ceil(R.map.w / cell) + 1;
+      this.gh = Math.ceil(R.map.h / cell) + 1;
+      this.cells = new Array(this.gw * this.gh);
+      for (let i = 0; i < this.cells.length; i++) this.cells[i] = [];
       this.used = [];           // 本轮有单位的格子（桶），clear 时只清这些
       this.ucx = [];            // 与 used 一一对应的格子坐标
       this.ucy = [];
     }
     clear() {
-      for (const b of this.used) b.length = 0;
-      this.used.length = 0;
+      const used = this.used;
+      for (let i = 0; i < used.length; i++) used[i].length = 0;
+      used.length = 0;
       this.ucx.length = 0;
       this.ucy.length = 0;
     }
+    // 格子 (cx, cy) 的桶；出了地图返回 null
+    at(cx, cy) {
+      if (cx < 0 || cy < 0 || cx >= this.gw || cy >= this.gh) return null;
+      return this.cells[cy * this.gw + cx];
+    }
+    // 单位所在格子的下标（钳在地图内）
+    index(x, y) {
+      let cx = (x / this.cell) | 0, cy = (y / this.cell) | 0;
+      if (cx < 0) cx = 0; else if (cx >= this.gw) cx = this.gw - 1;
+      if (cy < 0) cy = 0; else if (cy >= this.gh) cy = this.gh - 1;
+      return cy * this.gw + cx;
+    }
     insert(u) {
-      const cx = Math.floor(u.x / this.cell), cy = Math.floor(u.y / this.cell);
-      const k = keyOf(cx, cy);
-      let b = this.map.get(k);
-      if (!b) { b = []; this.map.set(k, b); }
-      if (b.length === 0) { this.used.push(b); this.ucx.push(cx); this.ucy.push(cy); }
+      this.put(u, this.index(u.x, u.y));
+    }
+    put(u, ci) {
+      const b = this.cells[ci];
+      if (b.length === 0) {
+        this.used.push(b);
+        const cy = (ci / this.gw) | 0;
+        this.ucx.push(ci - cy * this.gw);
+        this.ucy.push(cy);
+      }
       b.push(u);
     }
     // 所有中心距离 ≤ r 的单位（不过滤阵营和状态）
     near(x, y, r, out = []) {
-      const c = this.cell, r2 = r * r;
-      const x0 = Math.floor((x - r) / c), x1 = Math.floor((x + r) / c);
-      const y0 = Math.floor((y - r) / c), y1 = Math.floor((y + r) / c);
+      const c = this.cell, r2 = r * r, gw = this.gw, cells = this.cells;
+      const x0 = Math.max(0, Math.floor((x - r) / c)), x1 = Math.min(gw - 1, Math.floor((x + r) / c));
+      const y0 = Math.max(0, Math.floor((y - r) / c)), y1 = Math.min(this.gh - 1, Math.floor((y + r) / c));
       for (let cx = x0; cx <= x1; cx++) {
         for (let cy = y0; cy <= y1; cy++) {
-          const b = this.map.get(keyOf(cx, cy));
-          if (!b) continue;
+          const b = cells[cy * gw + cx];
           for (let i = 0; i < b.length; i++) {
             const u = b[i];
             const dx = u.x - x, dy = u.y - y;
@@ -94,12 +115,12 @@
     }
     // 中心落在矩形 [x0, x1] × [y0, y1] 内的单位
     box(x0, x1, y0, y1, out = []) {
-      const c = this.cell;
-      const cx1 = Math.floor(x1 / c), cy1 = Math.floor(y1 / c);
-      for (let cx = Math.floor(x0 / c); cx <= cx1; cx++) {
-        for (let cy = Math.floor(y0 / c); cy <= cy1; cy++) {
-          const b = this.map.get(keyOf(cx, cy));
-          if (!b) continue;
+      const c = this.cell, gw = this.gw, cells = this.cells;
+      const cx0 = Math.max(0, Math.floor(x0 / c)), cx1 = Math.min(gw - 1, Math.floor(x1 / c));
+      const cy0 = Math.max(0, Math.floor(y0 / c)), cy1 = Math.min(this.gh - 1, Math.floor(y1 / c));
+      for (let cx = cx0; cx <= cx1; cx++) {
+        for (let cy = cy0; cy <= cy1; cy++) {
+          const b = cells[cy * gw + cx];
           for (let i = 0; i < b.length; i++) {
             const u = b[i];
             if (u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) out.push(u);
@@ -108,11 +129,6 @@
       }
       return out;
     }
-  }
-
-  // 参与分离推挤的单位：地面、不是巨像、不在钻地、不是骨堆、活着
-  function solid(eng, u) {
-    return !u.flying && !u.ghost && !u.burrowed && !u.bones && eng.alive(u);
   }
 
   class Engine {
@@ -130,11 +146,14 @@
         radius: R.map.crystalRadius, hp: R.map.crystalHp, maxHp: R.map.crystalHp, cd: 0, st: {},
       }));
       this.sides = [0, 1].map(() => ({
-        gold: R.economy.startGold, supplyUsed: 0, cdLeft: {}, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0],
+        gold: R.economy.startGold, supplyUsed: 0, incomeMul: 1, spawned: {}, manualCd: [0, 0, 0], dragonCd: [0, 0, 0],
+        pick: null,       // 最后一次选中的兵种：统一派兵时出它
       }));
+      this.waveN = 0;     // 已经过了几次统一派兵
+      this.dragonCrystal = true;   // 冰龙能不能打水晶（界面上的开关，关掉以后冰龙的任何伤害都打不到水晶）
       // 作弊开关：只由界面的作弊菜单修改，默认全关，不影响正常对局和无头测试
       this.cheats = {
-        infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false,
+        infiniteGold: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
         incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
       };
       this.units = [];
@@ -147,6 +166,14 @@
       this.ais = [];
       this.uidSeq = 0;
       this.grid = new Grid(CELL);
+      // 每个阵营一张网格，只给索敌用：找敌人时只翻对面那张，自家几千人挤在一起也不用一个个跳过
+      this.sideGrid = [new Grid(CELL), new Grid(CELL)];
+      this.qbuf = [];                   // 索敌查询的复用缓冲区
+      this.taunters = [[], []];         // 各阵营带嘲讽的单位（冰龙）
+      this.has = [{}, {}];              // 各阵营每个兵种的在场数：rex / brown / mimic / satan 这些要频繁问“有没有”的直接查这里
+      this.foeSeen = [-1, -1];          // foeUnitsAlive 的缓存（按步）
+      this.foeSeenV = [false, false];
+      this.autoT = 0;                   // 电脑的撒旦自动放技能的检查计时
       // 每步重建网格时顺便统计：各阵营存活数、正在挥击数，以及远程单位列表（蝙蝠追击用）
       this.stat = { alive: [0, 0], swing: [0, 0] };
       this.rangedBy = [[], []];
@@ -156,6 +183,8 @@
 
     // ---------- 事件与特效（给渲染和界面用） ----------
     emit(ev) {
+      // 伤害数字多到画不过来时直接不记（界面同时最多显示一百来个），省下成千上万个小对象
+      if (ev.t === 'num' && this.events.length > 240) return;
       this.events.push(ev);
       if (this.events.length > 600) this.events.splice(0, this.events.length - 400);
     }
@@ -165,6 +194,8 @@
       return out;
     }
     addFx(f) {
+      // 特效同时最多 400 个：一个技能打到几千人时，多出来的只算伤害不画（全屏染色那种不受限）
+      if (this.fx.length >= 400 && f.kind !== 'tint') return;
       f.t = 0;
       this.fx.push(f);
     }
@@ -189,10 +220,12 @@
     }
     // 王之威仪：200 范围内同阵营存活的雷克斯
     rexAura(u) {
+      if (!this.has[u.side].rex) return false;
       return this.unitsNear(u.x, u.y, 200).some((e) => e.uid === 'rex' && e.side === u.side && this.alive(e));
     }
     // 盾墙：布朗身后 120 范围内（含布朗自己）的友军受到的穿刺伤害 -70%
     brownShield(tgt) {
+      if (!this.has[tgt.side].brown) return false;
       return this.unitsNear(tgt.x, tgt.y, 200).some((b) => b.uid === 'brown' && b.side === tgt.side &&
         b.shieldWallT > 0 && this.alive(b) && C.shieldCovers(b, tgt));
     }
@@ -228,34 +261,117 @@
       const dx = t.x - u.x, dy = t.y - u.y;
       return dx * dx + dy * dy <= r * r;
     }
+    // 这个单位现在能不能把水晶当目标（“冰龙打水晶”关着时冰龙不行）
+    hitsCrystal(u) {
+      return !(u.def.crystalSwitch && !this.dragonCrystal);
+    }
     // 普通索敌：攻击距离内最优的单位（远程优先给蝙蝠）；没有就看水晶。巨像只找水晶
     findTarget(u) {
       const foe = 1 - u.side;
+      // 被冰龙嘲讽：只打它，够不着就什么都不打（由移动去追）
+      const tn = this.tauntOf(u);
+      if (tn) return this.inReach(u, tn) ? tn : null;
       if (u.ghost) {
         const c = this.crystals[foe];
         return c.hp > 0 && this.inReach(u, c) ? c : null;
       }
       let best = null, bestKey = Infinity;
-      for (const e of this.unitsNear(u.x, u.y, u.range + u.radius + MAX_R + REACH)) {
-        if (e.side !== foe || !this.targetable(e)) continue;
-        if (e.flying && !u.canHitAir) continue;
-        if (!this.inReach(u, e)) continue;
-        const key = (u.uid === 'bats' && !e.ranged ? 1e6 : 0) + Math.hypot(e.x - u.x, e.y - u.y);
-        if (key < bestKey) { bestKey = key; best = e; }
+      // scanFree：上次找追击目标时最近的敌人还远着，这段时间内不可能有人进攻击距离，直接跳过
+      if (!(u.scanFree > this.time)) {
+        const buf = this.qbuf;
+        buf.length = 0;
+        this.sideGrid[foe].near(u.x, u.y, u.range + u.radius + MAX_R + REACH, buf);
+        const hunter = u.def.hunter;
+        for (let i = 0; i < buf.length; i++) {
+          const e = buf[i];
+          if (!this.targetable(e)) continue;
+          if (e.flying && !u.canHitAir) continue;
+          if (!this.inReach(u, e)) continue;
+          if (hunter && this.behind(u, e) && !this.slapReach(u, e)) continue;   // 冰龙：身后的敌人要贴上去拍
+          const key = (u.uid === 'bats' && !e.ranged ? 1e6 : 0) + Math.hypot(e.x - u.x, e.y - u.y);
+          if (key < bestKey) { bestKey = key; best = e; }
+        }
       }
       if (best) return best;
+      if (u.def.hunter && this.foeUnitsAlive(u.side)) return null;   // 冰龙：场上还有敌军就不碰水晶
       const c = this.crystals[foe];
-      return c.hp > 0 && this.inReach(u, c) ? c : null;
+      return c.hp > 0 && this.hitsCrystal(u) && this.inReach(u, c) ? c : null;
+    }
+    // 敌方还有没有活着的单位（水晶不算）：冰龙靠它判断要不要去推水晶。每步只数一次
+    foeUnitsAlive(side) {
+      if (this.foeSeen[side] === this.time) return this.foeSeenV[side];
+      const foe = 1 - side;
+      let any = false;
+      for (const e of this.units) if (e.side === foe && this.targetable(e)) { any = true; break; }
+      this.foeSeen[side] = this.time;
+      this.foeSeenV[side] = any;
+      return any;
+    }
+    // 冰龙的朝向规则：t 在它前进方向的身后（我方冰龙往右推，身后就是左边）
+    behind(u, t) {
+      return (t.x - u.x) * C.DIR(u.side) < -30;
+    }
+    // 拍得到：贴身（两个半径之外再留 60）
+    slapReach(u, t) {
+      const r = u.radius + t.radius + 60;
+      const dx = t.x - u.x, dy = t.y - u.y;
+      return dx * dx + dy * dy <= r * r;
+    }
+    // 嘲讽：敌方冰龙的嘲讽范围内，返回最近的那一头，没有就是 null。每 0.25 秒重新找一次
+    tauntOf(u) {
+      const list = this.taunters[1 - u.side];
+      if (!list.length) return null;
+      let t = u.taunt;
+      if (this.time >= u.tauntNext || (t && !this.targetable(t))) {
+        t = null;
+        let bd = Infinity;
+        for (let i = 0; i < list.length; i++) {
+          const d = list[i];
+          if (!this.targetable(d) || (d.flying && !u.canHitAir)) continue;
+          const dx = d.x - u.x, dy = d.y - u.y, q = dx * dx + dy * dy, r = d.def.taunt;
+          if (q <= r * r && q < bd) { bd = q; t = d; }
+        }
+        u.taunt = t;
+        u.tauntNext = this.time + RETARGET;
+      }
+      return t;
     }
     validInRange(u, t) {
-      if (t.isCrystal) return t.hp > 0 && this.inReach(u, t);
+      if (t.isCrystal) return t.hp > 0 && this.hitsCrystal(u) && this.inReach(u, t);
+      if (u.def.hunter && this.behind(u, t) && !this.slapReach(u, t)) return false;
       return this.targetable(t) && this.inReach(u, t) && (!t.flying || u.canHitAir);
     }
     // 追击目标：仇恨范围 max(320, range + 200) 内最近的可攻击敌人；蝙蝠是全图最近的远程敌人；巨像和不能动的没有
     chaseTarget(u) {
-      if (u.ghost || u.def.speed <= 0) return null;
+      this.chaseD = Infinity;      // 这次找到的目标离多远（没找到是 Infinity），updateUnit 用它算 scanFree
+      if (u.def.speed <= 0) return null;
+      const tn = this.tauntOf(u);
+      if (tn) return tn;           // 被嘲讽：追冰龙（碎城巨人也一样）
+      if (u.ghost) return null;
       const foe = 1 - u.side;
       let best = null, bd = Infinity;
+      const buf = this.qbuf;
+      if (u.def.hunter) {
+        // 冰龙猎食：全场最近的敌军单位（不管多远，往左也追），不找水晶。先在近处的网格里找，没有再扫全场
+        for (const r of [700, 2600]) {
+          buf.length = 0;
+          this.sideGrid[foe].near(u.x, u.y, r, buf);
+          for (let i = 0; i < buf.length; i++) {
+            const e = buf[i];
+            if (!this.targetable(e) || (e.flying && !u.canHitAir)) continue;
+            const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
+            if (d < bd) { bd = d; best = e; }
+          }
+          if (best) return best;
+        }
+        for (const e of this.units) {
+          if (e.side !== foe || !this.targetable(e)) continue;
+          if (e.flying && !u.canHitAir) continue;
+          const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
+          if (d < bd) { bd = d; best = e; }
+        }
+        return best;
+      }
       if (u.uid === 'bats') {
         for (const e of this.rangedBy[foe]) {
           if (!this.targetable(e)) continue;
@@ -265,12 +381,16 @@
         return best;
       }
       const aggro = Math.max(320, u.range + 200);
-      for (const e of this.unitsNear(u.x, u.y, aggro)) {
-        if (e.side !== foe || !this.targetable(e)) continue;
+      buf.length = 0;
+      this.sideGrid[foe].near(u.x, u.y, aggro, buf);
+      for (let i = 0; i < buf.length; i++) {
+        const e = buf[i];
+        if (!this.targetable(e)) continue;
         if (e.flying && !u.canHitAir) continue;
         const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
         if (d < bd) { bd = d; best = e; }
       }
+      this.chaseD = best ? Math.sqrt(bd) : aggro;
       return best;
     }
 
@@ -283,26 +403,26 @@
     supplyCap() {
       return Math.floor(R.economy.supplyBase + R.economy.supplyGrowth * this.time);
     }
-    canSpawn(side, uid) {
+    // cheat：作弊派送（只有 cheatSend 的兵种能派给电脑）。电脑自己买 playerOnly 的兵种一律不行
+    canSpawn(side, uid, cheat = false) {
       const d = C.BY_ID[uid];
       const S = this.sides[side];
       if (!d) return 'no';
       if (this.ended) return 'ended';
-      if (d.playerOnly && side !== 0) return 'no';
+      if (d.playerOnly && side !== 0 && !(cheat && d.cheatSend)) return 'no';
       const ch = side === 0 ? this.cheats : null;
-      if (S.cdLeft[uid] > 0 && !(ch && ch.noCd)) return 'cooldown';
       if (S.gold < d.cost) return 'gold';
       if (S.supplyUsed + d.supply > this.supplyCap() && !(ch && ch.noSupply)) return 'supply';
       if (d.maxOnField && this.count(side, uid) >= d.maxOnField) return 'max';
       return 'ok';
     }
-    spawn(side, uid) {
-      if (this.canSpawn(side, uid) !== 'ok') return false;
+    spawn(side, uid, cheat = false) {
+      if (this.canSpawn(side, uid, cheat) !== 'ok') return false;
       const d = C.BY_ID[uid];
       const S = this.sides[side];
       S.gold -= d.cost;
       S.supplyUsed += d.supply;
-      S.cdLeft[uid] = d.cooldown;
+      if (!cheat) S.pick = uid;     // 自己买的才算“选中”，作弊派送的不算
       S.spawned[uid] = (S.spawned[uid] || 0) + d.count;
       const group = { supply: d.supply, members: d.count };   // 一次出几个，人口只算一次
       const fp = this.formationPoint(side);
@@ -319,7 +439,25 @@
       this.emit({ t: 'spawn', side, uid });
       return true;
     }
-    // 批量出兵（作弊）：不扣金币、人口、冷却，一次出 n 个单独的单位（不是“组”）。
+    // 选中一个兵种（不出兵）：点了卡片但钱不够时界面会调它，到统一派兵时就出这个
+    setPick(side, uid) {
+      if (C.BY_ID[uid]) this.sides[side].pick = uid;
+    }
+    // 离下一次统一派兵还有几秒
+    waveLeft() {
+      const W = R.economy.waveEvery;
+      return W - (this.time % W);
+    }
+    // 统一派兵：把这一方的金币一直换成最后选中的兵种，换到买不起（或者人口满了、到数量上限）为止。返回出了几组
+    dispatch(side) {
+      const uid = this.sides[side].pick;
+      if (!uid) return 0;
+      let n = 0;
+      while (n < R.economy.waveMax && this.spawn(side, uid)) n++;
+      if (n) this.emit({ t: 'wave', side, uid, n });
+      return n;
+    }
+    // 批量出兵（作弊）：不扣金币、人口，一次出 n 个单独的单位（不是“组”）。
     // 每方批量兵合计（含已经在场的，所有兵种加起来）不超过 BATCH_MAX：直接上场的个数 = 上限减去场上已有的，
     // 超出的进待命队列（见 enterQueues），场上少了再陆续进场，不会一次算几十万个单位卡死。
     // 纵向铺满出兵带，每列排满一遍，人越多列越多，横向往场中挤，但不超过 MASS_DEPTH。
@@ -327,7 +465,7 @@
     massSpawn(side, uid, n) {
       const d = C.BY_ID[uid];
       if (!d || this.ended || !(n > 0)) return 0;
-      if (d.playerOnly && side !== 0) return 0;
+      if (d.playerOnly && side !== 0 && !d.cheatSend) return 0;
       if (d.maxOnField) return 0;
       n = Math.min(n, BATCH_ONCE);
       const now = Math.min(n, Math.max(0, BATCH_MAX - this.batchOn(side)));
@@ -466,11 +604,21 @@
         group: o.group || null,
         chase: null,
         retargetT: this.rng() * RETARGET,
+        solid: false,               // 这一步参不参与分离推挤（separate 里每步重算）
+        scanFree: 0,                // 这个时刻之前不用扫敌人（见 findTarget）
+        taunt: null,                // 正在嘲讽它的冰龙
+        tauntNext: 0,
+        findNext: 0,                // 人多时：这个时刻之前不重新找攻击目标
+        lod: (this.rng() * 2) | 0,  // 错开省算力的步子
       };
       C.place(u, x, y);
       this.units.push(u);
       this.grid.insert(u);
+      this.sideGrid[side].insert(u);
       if (u.ranged) this.rangedBy[side].push(u);
+      if (def.taunt) this.taunters[side].push(u);
+      this.has[side][u.uid] = (this.has[side][u.uid] || 0) + 1;
+      this.foeSeen[1 - side] = -1;
       return u;
     }
 
@@ -480,13 +628,29 @@
       this.pending.push(u);
     }
     removeUnit(u) {
+      // 只做标记，统一在 compact() 里一次性从列表里拿掉（每死一个就 splice 一次在上万单位时很慢）
+      if (!u.dead) this.unitsDirty = true;
       u.dead = true;
-      const i = this.units.indexOf(u);
-      if (i >= 0) this.units.splice(i, 1);
       if (u.group) {
         u.group.members -= 1;
         if (u.group.members <= 0) this.sides[u.side].supplyUsed -= u.group.supply;
       }
+    }
+    compact() {
+      if (!this.unitsDirty) return;
+      this.unitsDirty = false;
+      const a = this.units;
+      let n = 0;
+      for (let i = 0; i < a.length; i++) if (!a[i].dead) a[n++] = a[i];
+      a.length = n;
+    }
+    // 当前单位列表的拷贝（复用缓冲区）：遍历途中新加的单位不在这一轮里
+    snapshot() {
+      const a = this.units, b = this.snapBuf === this.lastSnap ? (this.snapBuf2 || (this.snapBuf2 = [])) : (this.snapBuf || (this.snapBuf = []));
+      this.lastSnap = b;
+      b.length = a.length;
+      for (let i = 0; i < a.length; i++) b[i] = a[i];
+      return b;
     }
     removeBody(b) {
       const i = this.bodies.indexOf(b);
@@ -512,6 +676,12 @@
       let t = s.target;
       if (!this.validInRange(u, t)) t = this.findTarget(u);
       if (!t) return;
+      if (u.def.breath) {
+        // 冰龙：身后的敌人贴上去拍一爪子，其余的吐息直接落在目标位置，都不走投射物
+        if (s.slap && !t.isCrystal && this.slapReach(u, t)) C.slapHit(this, u, t);
+        else C.breathHit(this, u, t);
+        return;
+      }
       if (t.isCrystal) {
         // 水晶和单位一样吃攻击方的 onHit（亡灵君主的易伤等，applyStatus 只让水晶收下易伤）
         const hit = () => {
@@ -541,6 +711,11 @@
     }
 
     startSwing(u, t) {
+      if (u.def.hunter && !t.isCrystal && this.behind(u, t)) {
+        // 冰龙拍击：0.7 秒一下，第 0.25 秒落爪，伤害和吐息一样
+        u.swing = { t: 0, period: 0.7, releaseT: 0.25, target: t, hit: false, slap: true };
+        return;
+      }
       const a = animOf(u.sheet, 'attack');
       const period = 1 / (u.aspd * C.slowMul(u));
       const rel = a ? a.release : 0;
@@ -564,15 +739,21 @@
       if (u.def.speed <= 0 || C.has(u, 'root')) return;
       let tgt = null;
       const c = u.chase;
+      let pounce = false;
       if (c && this.targetable(c)) {
-        if (this.inReach(u, c)) return;     // 已经够得着，由挥击处理
+        pounce = !!u.def.hunter && this.behind(u, c);
+        if (pounce ? this.slapReach(u, c) : this.inReach(u, c)) return;     // 已经够得着，由挥击处理
         tgt = c;
+      } else if (u.def.hunter && this.foeUnitsAlive(u.side)) {
+        // 冰龙：没有追击目标时先往右（朝敌方那边）走，不扑水晶
+        tgt = { x: u.x + (u.side === 0 ? 600 : -600), y: u.y };
       } else {
         const g = this.goalOf(u.side);
         if (g.hp <= 0 || this.inReach(u, g)) return;
         tgt = g;
       }
       let v = u.def.speed * C.slowMul(u);
+      if (pounce) v *= 4;           // 冰龙回头扑身后的敌人：4 倍速冲过去
       if (u.uid === 'worm') {       // 移动时钻在地下：不能被攻击，移速 ×1.5
         u.burrowed = true;
         v *= 1.5;
@@ -608,14 +789,31 @@
       if (u.def.speed > 0) {
         u.retargetT -= dt;
         if (u.retargetT <= 0) {
-          u.retargetT = RETARGET;
+          // 场上人多时后面的兵反应慢一点：重新找目标的间隔跟着人数拉长
+          const n = this.units.length;
+          u.retargetT = n < LOD_N ? RETARGET : n < 2 * LOD_N ? RETARGET * 1.6 : RETARGET * 2.4;
           u.chase = this.chaseTarget(u);
+          // 最近的敌人离攻击距离还差 150 以上：到下次重新找之前不会有人进得来，这段时间 findTarget 不用扫
+          const far = this.chaseD - (u.range + u.radius + MAX_R + REACH);
+          u.scanFree = far > 150 && far < Infinity ? this.time + u.retargetT + dt : 0;
+        }
+      }
+      if (u.def.hunter) {
+        // 冰龙扭头：正在打谁就朝谁，没在打就朝追的那个，都没有就朝前
+        const f = u.swing && u.swing.target ? u.swing.target : u.chase;
+        if (f && (f.isCrystal || this.targetable(f))) {
+          const dx = f.x - u.x;
+          if (Math.abs(dx) > 24) u.dir = dx > 0 ? 1 : -1;
+        } else if (!u.swing) {
+          u.dir = C.DIR(u.side);
         }
       }
       if (C.trySkill(this, u) && (u.cast || u.charge)) return;
-      if (!u.swing) {
+      if (!u.swing && !(u.findNext > this.time)) {
         const t = this.findTarget(u);
         if (t) this.startSwing(u, t);
+        // 人多时没找到攻击目标的兵隔几步再找（错开，不是同一步一起找）
+        else if (this.units.length >= LOD_N) u.findNext = this.time + dt * (2 + u.lod);
       }
       if (u.swing) {
         this.swingStep(u, dt);
@@ -625,7 +823,8 @@
     }
 
     // 每步开始（和移动、推挤之后）重建空间网格，并统计存活数、挥击数、远程列表
-    buildGrid() {
+    // scan：每步开头那一次还要重建两张阵营网格、嘲讽名单和各兵种在场数（索敌用，移动和推挤之后不用再建）
+    buildGrid(scan = true) {
       const g = this.grid;
       g.clear();
       const st = this.stat;
@@ -633,12 +832,27 @@
       st.swing[0] = st.swing[1] = 0;
       this.rangedBy[0].length = 0;
       this.rangedBy[1].length = 0;
-      for (const u of this.units) {
-        g.insert(u);
-        if (!this.alive(u)) continue;
+      const sg = this.sideGrid, tn = this.taunters;
+      if (scan) {
+        sg[0].clear(); sg[1].clear();
+        tn[0].length = 0; tn[1].length = 0;
+        this.has[0] = {}; this.has[1] = {};
+      }
+      const units = this.units;
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        const ci = g.index(u.x, u.y);
+        g.put(u, ci);
+        if (u.dead || u.bones || u.pendingDeath || u.hp <= 0) continue;
         st.alive[u.side]++;
         if (u.swing) st.swing[u.side]++;
         if (u.ranged) this.rangedBy[u.side].push(u);
+        if (scan) {
+          sg[u.side].put(u, ci);
+          if (u.def.taunt) tn[u.side].push(u);
+          const h = this.has[u.side];
+          h[u.uid] = (h[u.uid] || 0) + 1;
+        }
       }
     }
 
@@ -646,30 +860,43 @@
     // 地面单位最后再推出水晶圆外（放在单位推挤之后，保证推挤不会把单位推进水晶）
     separate() {
       const g = this.grid;
+      const units = this.units;
+      // 先给每个单位记上“参不参与推挤”，后面配对时不用反复判断
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        u.solid = !u.flying && !u.ghost && !u.burrowed && !u.bones && !u.dead && !u.pendingDeath && u.hp > 0;
+      }
       // 先在推挤前的网格上找出所有重叠的对，再统一推，避免中途位置变化漏掉。
       // 格子边长 96 大于两个单位半径之和的最大值（80，CELL 不能小于它），重叠的两个单位一定在同格或相邻格里，
       // 所以按格子遍历：同格内两两配对，邻格只看 4 个方向，每对只访问一次，不用对每个单位做查询
       const pairs = this.pairBuf;
-      pairs.length = 0;
-      const addPair = (a, b) => {
-        if (!solid(this, b)) return;
-        const m = a.radius + b.radius;
-        const dx = b.x - a.x, dy = b.y - a.y;
-        if (dx * dx + dy * dy < m * m) pairs.push(a, b);
-      };
+      let pn = 0;
       for (let i = 0; i < g.used.length; i++) {
         const cell = g.used[i], cx = g.ucx[i], cy = g.ucy[i];
-        for (let p = 0; p < cell.length; p++) {
+        const n = cell.length;
+        for (let p = 0; p < n; p++) {
           const a = cell[p];
-          if (!solid(this, a)) continue;
-          for (let q = p + 1; q < cell.length; q++) addPair(a, cell[q]);
-          for (let o = 0; o < FWD.length; o += 2) {
-            const nb = g.map.get(keyOf(cx + FWD[o], cy + FWD[o + 1]));
-            if (nb) for (let q = 0; q < nb.length; q++) addPair(a, nb[q]);
+          if (!a.solid) continue;
+          const ax = a.x, ay = a.y, ar = a.radius;
+          for (let q = p + 1; q < n; q++) {
+            const b = cell[q];
+            if (!b.solid) continue;
+            const m = ar + b.radius, dx = b.x - ax, dy = b.y - ay;
+            if (dx * dx + dy * dy < m * m) { pairs[pn++] = a; pairs[pn++] = b; }
+          }
+          for (let o = 0; o < 8; o += 2) {
+            const nb = g.at(cx + FWD[o], cy + FWD[o + 1]);
+            if (!nb) continue;
+            for (let q = 0; q < nb.length; q++) {
+              const b = nb[q];
+              if (!b.solid) continue;
+              const m = ar + b.radius, dx = b.x - ax, dy = b.y - ay;
+              if (dx * dx + dy * dy < m * m) { pairs[pn++] = a; pairs[pn++] = b; }
+            }
           }
         }
       }
-      for (let i = 0; i < pairs.length; i += 2) {
+      for (let i = 0; i < pn; i += 2) {
         const a = pairs[i], b = pairs[i + 1];
         const m = a.radius + b.radius;
         const dx = b.x - a.x, dy = b.y - a.y;
@@ -688,11 +915,16 @@
         a.x -= nx * h; a.y -= ny * h;
         b.x += nx * h; b.y += ny * h;
       }
-      // 水晶圆：地面单位推到圆边上。水晶只有两个，直接扫全部单位，不用网格
+      pairs.length = 0;      // 不留着单位的引用
+      // 水晶圆：地面单位推到圆边上。只查水晶周围那几格
       for (const c of this.crystals) {
         if (c.hp <= 0) continue;
-        for (const u of this.units) {
-          if (!solid(this, u)) continue;
+        const buf = this.qbuf;
+        buf.length = 0;
+        g.near(c.x, c.y, c.radius + MAX_R + 60, buf);
+        for (let i = 0; i < buf.length; i++) {
+          const u = buf[i];
+          if (!u.solid) continue;
           const m = c.radius + u.radius;
           const dx = u.x - c.x, dy = u.y - c.y;
           const d = Math.sqrt(dx * dx + dy * dy);
@@ -710,7 +942,13 @@
           u.y = c.y + ny * m;
         }
       }
-      for (const u of this.units) C.place(u, u.x, u.y);
+      // 所有单位钳在地图内
+      const W = this.W, H = this.H;
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i], r = u.radius;
+        if (u.x < r) u.x = r; else if (u.x > W - r) u.x = W - r;
+        if (u.y < r) u.y = r; else if (u.y > H - r) u.y = H - r;
+      }
     }
 
     // ---------- 主循环 ----------
@@ -739,17 +977,34 @@
       // 经济：基础收入 + 贪婪宝箱每个每秒 3 金币
       for (let s = 0; s < 2; s++) {
         const S = this.sides[s];
-        let mimics = 0;
-        for (const u of this.units) if (u.side === s && u.uid === 'mimic' && this.alive(u)) mimics++;
+        const mimics = this.has[s].mimic || 0;
         S.gold += (this.baseIncome(s) + 3 * mimics) * this.cheats.incomeMul[s] * dt;
         if (s === 0 && this.cheats.infiniteGold) S.gold = Math.max(S.gold, 999999);
-        for (const k of Object.keys(S.cdLeft)) S.cdLeft[k] = Math.max(0, S.cdLeft[k] - dt);
-        for (let i = 0; i < 3; i++) S.manualCd[i] = this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
+        // “撒旦技能无冷却”只给我方：电脑的撒旦是自动放技能的，没有冷却就停不下来了
+        for (let i = 0; i < 3; i++) S.manualCd[i] = s === 0 && this.cheats.satanNoCd ? 0 : Math.max(0, S.manualCd[i] - dt);
+        for (let i = 0; i < 3; i++) S.dragonCd[i] = this.cheats.dragonNoCd ? 0 : Math.max(0, S.dragonCd[i] - dt);
+      }
+
+      // 统一派兵：每过 waveEvery 秒双方各来一次（“电脑停止出兵”开着时电脑不派）
+      const wave = Math.floor(this.time / R.economy.waveEvery);
+      if (wave > this.waveN) {
+        this.waveN = wave;
+        this.dispatch(0);
+        if (!this.cheats.aiOff) this.dispatch(1);
       }
 
       if (this.queues.length) this.enterQueues();
 
-      for (const u of this.units.slice()) {
+      // 电脑的撒旦自己放技能（每 0.5 秒看一次条件）
+      this.autoT -= dt;
+      if (this.autoT <= 0) {
+        this.autoT = 0.5;
+        if (this.has[1].satan) C.autoSatan(this, 1);
+      }
+
+      const pre = this.snapshot();
+      for (let i = 0; i < pre.length; i++) {
+        const u = pre[i];
         if (u.dead) continue;
         C.tickStatuses(this, u, dt);
         if (u.bones) {
@@ -761,6 +1016,7 @@
         if (u.skillCd > 0) u.skillCd = Math.max(0, u.skillCd - dt);
         u.shieldWallT = Math.max(0, u.shieldWallT - dt);
         if (u.uid === 'satan' && this.alive(u)) C.satanAura(this, u, dt);
+        if (u.uid === 'frostwing' && this.alive(u)) C.frostAura(this, u, dt);
         if (u.life != null) {
           u.life -= dt;
           // 召唤物到时间消散：hp 归零再登记死亡，结算时不会被当成“没死”而留在场上
@@ -768,11 +1024,23 @@
         }
       }
 
-      for (const u of this.units.slice()) this.updateUnit(u, dt);
+      const list = this.snapshot();
+      // 人多时，后排闲着赶路的兵（附近没敌人、没在打）隔一步才动一次，动的那步走两步的距离
+      const heavy = list.length >= LOD_N, par = (this.sepTick || 0) & 1;
+      for (let i = 0; i < list.length; i++) {
+        const u = list[i];
+        if (heavy && !u.swing && !u.chase && !u.cast && !u.charge && u.scanFree > this.time) {
+          if (u.lod !== par) continue;
+          this.updateUnit(u, dt * 2);
+        } else this.updateUnit(u, dt);
+      }
 
-      this.buildGrid();      // 移动之后重建，给分离推挤用
-      this.separate();
-      this.buildGrid();      // 推挤之后重建，给后面的落地、区域、炮塔用
+      // 推挤直接用这一步开头建的网格：一步之内单位只挪几个像素，格子 96 比最大半径和 80 宽，基本不会漏配对。
+      // 场上单位很多时隔一步推一次（每次都把重叠完全推开，看不出区别）
+      this.sepTick = (this.sepTick || 0) + 1;
+      const nU = this.units.length;
+      if (nU < LOD_N || this.sepTick % (nU < 3 * LOD_N ? 2 : 3) === 0) this.separate();
+      this.buildGrid(false);      // 移动和推挤之后重建，给后面的落地、区域、炮塔用
 
       for (const p of this.projectiles) {
         if (p.done) continue;
@@ -814,7 +1082,8 @@
         let t = null, bd = Infinity;
         for (const e of this.unitsNear(c.x, c.y, R.crystal.range + c.radius)) {
           if (e.side !== foe || !this.targetable(e)) continue;
-          const d = (e.x - c.x) ** 2 + (e.y - c.y) ** 2;
+          // 炮塔也吃嘲讽：射程里有冰龙就先打冰龙
+          const d = (e.x - c.x) ** 2 + (e.y - c.y) ** 2 - (e.def.taunt ? 1e12 : 0);
           if (d < bd) { bd = d; t = e; }
         }
         if (t) {
@@ -848,6 +1117,9 @@
         C.onDeath(this, u);
         this.emit({ t: 'death', side: u.side, uid: u.uid, x: u.x, y: u.y });
       }
+      this.compact();
+      // 尸体最多留 1500 具，超了把最早的清掉
+      if (this.bodies.length > 1500) this.bodies.splice(0, this.bodies.length - 1200);
     }
 
     // 作弊菜单：设置水晶当前血量和上限（上限跟着调大，血条不会溢出）
@@ -858,7 +1130,8 @@
     }
     // 作弊菜单：清空一方场上所有单位（直接移除，不留尸体、不触发死亡特性）
     wipe(side) {
-      for (const u of this.units.slice()) if (u.side === side) this.removeUnit(u);
+      for (const u of this.units) if (u.side === side) this.removeUnit(u);
+      this.compact();
       this.bodies = this.bodies.filter((b) => b.side !== side);
       this.queues = this.queues.filter((q) => q.side !== side);
     }

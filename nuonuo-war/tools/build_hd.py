@@ -29,6 +29,9 @@ SHEETS = {
     "king_1":         {"idle": ("Idle", 8), "run": ("Run", 12), "attack": ("Attack_1", 12, 3), "hit": ("Hit", 10), "death": ("Death", 10)},
     "satan":          {"fw": 288, "idle": ("Idle", 8), "run": ("Walk", 12), "attack": ("Cleave", 16, 9), "hit": ("Hit", 12), "death": ("Death", 12)},
     "warrior_1":      {"fw": 184, "idle": ("Idle", 8), "run": ("Run", 10), "attack": ("Attack1", 10, 2), "hit": ("Hit", 10), "death": ("Death", 10)},
+    # 冰龙：由 tools/render_frostwing.js + build_frostwing.py 从三维模型渲染出来的条带图。一直在飞，待机和移动共用振翼
+    "frostwing":      {"fw": 544, "box": {"cx": 215, "foot": 268, "bodyW": 240, "bodyH": 205}, "smooth": True,
+                       "idle": ("Fly", 8), "run": ("Fly", 12), "attack": ("Roar", 8, 5), "hit": ("Fly", 12), "death": ("Death", 5)},
 }
 
 # 投射物条带：key -> (文件, 帧数)
@@ -52,7 +55,9 @@ out = {}
 for key, anims in SHEETS.items():
     anims = dict(anims)
     fw_fixed = anims.pop("fw", None)
-    files = {p.stem: p for p in (SRC / key).glob("*.png")}
+    box = anims.pop("box", None)          # 手填的锚点和身体尺寸（发光、吐息会把自动算的包围盒撑大）
+    smooth = anims.pop("smooth", False)   # 不是像素画：缩放时开平滑
+    files = {p.stem: p for p in (SRC / key).iterdir() if p.suffix in (".png", ".webp")}
     used = {st: Image.open(files[a[0]]).convert("RGBA") for st, a in anims.items()}
     h = used["idle"].height
     fw = fw_fixed or frame_width([im.width for im in used.values()], h)
@@ -63,6 +68,10 @@ for key, anims in SHEETS.items():
     x0 = min(b[0] for b in boxes); x1 = max(b[2] for b in boxes)
     y0 = min(b[1] for b in boxes); y1 = max(b[3] for b in boxes)
     meta = {"fw": fw, "fh": h, "cx": (x0 + x1) / 2, "foot": y1, "bodyW": x1 - x0, "bodyH": y1 - y0, "anims": {}}
+    if box:
+        meta.update(box)
+    if smooth:
+        meta["smooth"] = True
     for st, a in anims.items():
         meta["anims"][st] = {"src": f"hd/{key}/{a[0]}", "n": used[st].width // fw, "fps": a[1]}
         if len(a) > 2:

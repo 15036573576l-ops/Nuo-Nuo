@@ -72,7 +72,7 @@
         eng.spawn(this.side, this.goal);
         this.goal = null;
       } else if (why !== 'gold') {
-        this.goal = null;   // 冷却、人口、上限：换一个目标
+        this.goal = null;   // 人口、上限：换一个目标
       }
     }
 
@@ -142,7 +142,7 @@
         return { def, s };
       }).sort((a, b) => b.s - a.s);
       // 设计规则：单一兵种占双方总出兵的比例不超过 25%（总出兵 40 个以上才生效），超过的不参与选兵
-      // 没有这条规则，灰鼠群（一次 4 只、冷却短）会占掉 30% 以上的出兵，见 docs/QUESTIONS.md
+      // 没有这条规则，灰鼠群（一次 4 只、便宜）会占掉 30% 以上的出兵，见 docs/QUESTIONS.md
       const share = (id) => (totalUnits >= 40 ? (S.spawned[id] || 0) / totalUnits : 0);
       const allowed = scored.filter((x) => share(x.def.id) <= 0.25);
       if (allowed.length) scored = allowed;
@@ -165,7 +165,7 @@
       if (!danger && why === 'supply' && top.supply <= cap * 0.4) return;
       // 退而求其次只在分数接近第一名的兵种里挑；差太多就攒钱。
       // 告急时放宽到 2 分，但不再“什么便宜买什么”——以前守家时会刷出几百只灰鼠群
-      // 富余时（金币够买 3 个第一名）不卡分数下限：第一名在冷却中，就买能买的最高分兵种，不让金币堆着
+      // 富余时（金币够买 3 个第一名）不卡分数下限：第一名出不了（人口、上限），就买能买的最高分兵种，不让金币堆着
       // （收入随时间涨之后，只按分数挑会攒到几万金币，见 docs/QUESTIONS.md 第 43 条）
       const rich = S.gold >= 3 * top.cost;
       const floor = rich ? -Infinity : order[0].s - (danger ? 2.0 : 1.0);

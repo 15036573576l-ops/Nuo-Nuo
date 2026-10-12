@@ -17,6 +17,8 @@ window.RULES = {
     supplyBase: 40,
     supplyGrowth: 0.8,
     corpseSeconds: 6,
+    waveEvery: 60,      // 统一派兵：每过这么多秒，双方各自把金币全换成最后选中的那个兵种
+    waveMax: 500,       // 一次统一派兵最多出多少组（开着无限金币、无限人口时不至于出个没完）
   },
 
   // 伤害类型 × 护甲类型 倍率。最大 1.35、最小 0.6：全部是软克制，没有“打不动”
@@ -49,5 +51,4 @@ window.RULES = {
     { id: 'smite', name: '圣裁', when: '圣属性命中不死单位或骨堆', effect: '伤害 ×1.5；骨堆直接散架。' },
   ],
 
-  tierSpawnCooldown: { T3: '3-5s', T2: '6-10s', T1: '9-10s', 'T0.5': '12-14s', T0: '20s' },
 };

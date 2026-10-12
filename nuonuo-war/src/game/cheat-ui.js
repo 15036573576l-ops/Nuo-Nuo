@@ -1,17 +1,19 @@
-// 糯糯战记 · 作弊菜单 + 撒旦技能栏
+// 糯糯战记 · 作弊菜单 + 撒旦技能栏 + 冰龙技能栏和“冰龙打水晶”开关
 // 作弊设置存在界面这边，每开一局复制进新引擎，所以“电脑水晶 100 万”这类设置下一局也还在。
 (function () {
   const R = window.RULES;
   const C = window.Combat;
   const G = window.GameUI;
   const SATAN = C.BY_ID.satan;
+  const DRAGON = C.BY_ID.frostwing;
   const $ = (id) => document.getElementById(id);
 
   // 跨局保留的作弊设置
   const cfg = {
-    infiniteGold: false, noCd: false, noSupply: false, aiOff: false, satanNoCd: false,
+    infiniteGold: false, noSupply: false, aiOff: false, satanNoCd: false, dragonNoCd: false,
     incomeMul: [1, 1], dmgMul: [1, 1], invuln: [false, false], godMode: [false, false],
     crystalMax: [R.map.crystalHp, R.map.crystalHp],
+    dragonCrystal: true,                 // 冰龙能不能打水晶（画面右侧的开关，不算作弊，但一样跨局保留）
     batch: { side: 0, count: 100 },      // 批量出兵的阵营和数量（ui.js 的 armBatch）
   };
 
@@ -21,8 +23,9 @@
   function pushCheats(e) {
     if (!e) return;
     const c = e.cheats;
-    for (const k of ['infiniteGold', 'noCd', 'noSupply', 'aiOff', 'satanNoCd']) c[k] = cfg[k];
+    for (const k of ['infiniteGold', 'noSupply', 'aiOff', 'satanNoCd', 'dragonNoCd']) c[k] = cfg[k];
     for (const k of ['incomeMul', 'dmgMul', 'invuln', 'godMode']) c[k] = cfg[k].slice();
+    e.dragonCrystal = cfg.dragonCrystal;
   }
 
   // ---------- 面板 ----------
@@ -33,14 +36,15 @@
       { label: '我方收入', choice: ['incomeMul', 0, [1, 5, 20, 100]] },
     ] },
     { title: '出兵', rows: [
-      { label: '', toggles: [['出兵无冷却', 'noCd'], ['无限人口', 'noSupply']] },
-      { label: '撒旦', buttons: [['免费召唤撒旦', summonSatan]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
+      { label: '', toggles: [['无限人口', 'noSupply']] },
+      { label: '撒旦', buttons: [['免费召唤撒旦', () => summonSatan(0)], ['派送撒旦给电脑', () => summonSatan(1)]], toggles: [['撒旦技能无冷却', 'satanNoCd']] },
+      { label: '冰龙', buttons: [['免费召唤冰龙', summonDragon]], toggles: [['冰龙技能无冷却', 'dragonNoCd']] },
     ] },
     { title: '我方水晶', crystal: 0 },
     { title: '电脑水晶', crystal: 1 },
     { title: '伤害', rows: [
-      { label: '我方伤害', choice: ['dmgMul', 0, [1, 3, 10, 100]] },
-      { label: '电脑伤害', choice: ['dmgMul', 1, [1, 0.5, 0.1, 0]] },
+      { label: '我方伤害', choice: ['dmgMul', 0, [1, 3, 10, 100, 1000, 10000]] },
+      { label: '电脑伤害', choice: ['dmgMul', 1, [0, 0.1, 0.5, 1, 10, 100, 1000, 10000]] },
       { label: '', toggles: [['我方单位无敌', 'godMode', 0], ['电脑单位无敌', 'godMode', 1]] },
     ] },
     { title: '电脑', rows: [
@@ -120,7 +124,7 @@
     const r2 = document.createElement('div');
     r2.className = 'row';
     r2.innerHTML = '<span>数量</span>';
-    for (const n of [100, 1000, 10000]) {
+    for (const n of [100, 1000, 5000]) {
       r2.appendChild(chip(G.fmtCount(n), cfg.batch.count === n, () => { cfg.batch.count = n; }));
     }
     fs.appendChild(r2);
@@ -133,7 +137,7 @@
     fs.appendChild(r3);
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '不扣金币、人口和冷却，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
+    hint.textContent = '不扣金币和人口，单位在出兵带上整列铺开。单次最多召唤 1 万个，每方同时上场的批量兵最多 5 万个' +
       '（所有兵种合计），超出的进待命队列，场上少了再陆续补进来。1000 个以上要连点两次同一兵种确认。';
     fs.appendChild(hint);
     box.appendChild(fs);
@@ -192,26 +196,38 @@
     e.wipe(side);
     G.toast(side === 1 ? '敌军已全部消失' : '我方已清空');
   }
-  function summonSatan() {
+  // side：0 我方免费召唤，1 派送给电脑（只有作弊能这么做，电脑自己买不了）。撒旦没有数量上限
+  function summonSatan(side) {
+    const e = eng();
+    if (!e || e.ended) return G.toast('先开始一局');
+    const S = e.sides[side];
+    const saved = { gold: S.gold, supply: S.supplyUsed };
+    S.gold += SATAN.cost;
+    S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
+    const why = e.canSpawn(side, 'satan', true);
+    if (why === 'ok') {
+      e.spawn(side, 'satan', true);
+      S.gold = saved.gold;
+      S.supplyUsed = saved.supply + SATAN.supply;
+      G.toast(side === 0 ? '撒旦降临' : '撒旦降临电脑阵营');
+    } else {
+      S.gold = saved.gold;
+      S.supplyUsed = saved.supply;
+      G.toast('现在不能召唤');
+    }
+  }
+
+  // 冰龙没有数量上限，也不占人口：直接补上它的价钱再出，出完金币不变
+  function summonDragon() {
     const e = eng();
     if (!e || e.ended) return G.toast('先开始一局');
     const S = e.sides[0];
-    const saved = { gold: S.gold, cd: S.cdLeft.satan, supply: S.supplyUsed };
-    S.gold += SATAN.cost;
-    S.cdLeft.satan = 0;
-    S.supplyUsed = Math.min(S.supplyUsed, e.supplyCap() - SATAN.supply);
-    const why = e.canSpawn(0, 'satan');
-    if (why === 'ok') {
-      e.spawn(0, 'satan');
-      S.gold = saved.gold;
-      S.supplyUsed = saved.supply + SATAN.supply;
-      G.toast('撒旦降临');
-    } else {
-      S.gold = saved.gold;
-      S.cdLeft.satan = saved.cd;
-      S.supplyUsed = saved.supply;
-      G.toast(why === 'max' ? '撒旦已经在场上了' : '现在不能召唤');
-    }
+    const saved = { gold: S.gold, pick: S.pick };
+    S.gold += DRAGON.cost;
+    const ok = e.spawn(0, 'frostwing');
+    S.gold = saved.gold;
+    S.pick = saved.pick;        // 免费召唤不算“选中”，统一派兵还是出原来选的
+    G.toast(ok ? '冰龙降临' : '现在不能召唤');
   }
 
   function toggle() {
@@ -242,10 +258,47 @@
     else if (r === 'nosatan') G.toast('撒旦不在场上');
   }
 
+  // ---------- 冰龙技能栏 + 打水晶开关 ----------
+  const dbar = $('dragonbar');
+  const dbtns = DRAGON.manualSkills.map((m, i) => {
+    const b = document.createElement('button');
+    b.className = 'sk-btn ice';
+    b.style.setProperty('--c', m.color);
+    b.title = `${m.name}（${m.key}）：${m.desc}`;
+    b.innerHTML = `<span class="k">${m.key}</span>${m.name}<span class="cdm"></span><span class="cdn"></span>`;
+    b.addEventListener('click', () => dcast(i));
+    dbar.appendChild(b);
+    return { b, m, mask: b.querySelector('.cdm'), num: b.querySelector('.cdn') };
+  });
+  function dcast(i) {
+    const e = eng();
+    if (!e || !G.state.running || G.state.paused || e.ended) return;
+    const r = C.dragonCast(e, 0, i);
+    if (r === 'cooldown') G.toast('技能冷却中');
+    else if (r === 'nodragon') G.toast('冰龙不在场上');
+  }
+  const dcry = $('btn-dcrystal');
+  function syncCrystal() {
+    dcry.textContent = `冰龙打水晶：${cfg.dragonCrystal ? '开' : '关'}`;
+    dcry.classList.toggle('on', cfg.dragonCrystal);
+  }
+  function toggleCrystal() {
+    cfg.dragonCrystal = !cfg.dragonCrystal;
+    const e = eng();
+    if (e) e.dragonCrystal = cfg.dragonCrystal;
+    syncCrystal();
+    G.toast(cfg.dragonCrystal ? '冰龙可以打水晶' : '冰龙不再打水晶');
+  }
+  dcry.addEventListener('click', toggleCrystal);
+  syncCrystal();
+
   G.onKey = (k) => {
     if (k === 'C') { toggle(); return; }
+    if (k === 'H') { toggleCrystal(); return; }
     const i = SATAN.manualSkills.findIndex((m) => m.key === k);
-    if (i >= 0) cast(i);
+    if (i >= 0) { cast(i); return; }
+    const j = DRAGON.manualSkills.findIndex((m) => m.key === k);
+    if (j >= 0) dcast(j);
   };
   G.onNewGame = (e) => {
     pushCheats(e);
@@ -254,8 +307,19 @@
   };
   let lastPanel = 0;
   G.onFrame = (e) => {
-    const alive = e.units.some((u) => u.side === 0 && u.uid === 'satan' && e.alive(u));
+    const alive = !!e.has[0].satan;          // 各兵种的在场数引擎每步都数好了，不用自己翻一遍单位
     bar.classList.toggle('hidden', !alive);
+    const dragon = !!e.has[0].frostwing;
+    dbar.classList.toggle('hidden', !dragon);
+    dbar.classList.toggle('up', alive);      // 撒旦技能栏也在时，冰龙这一排挪到它左边
+    if (dragon) {
+      const cds = e.sides[0].dragonCd;
+      dbtns.forEach(({ m, mask, num }, i) => {
+        const left = cds[i];
+        mask.style.setProperty('--p', `${Math.round((left / m.cd) * 100)}%`);
+        num.textContent = left > 0 ? String(Math.ceil(left)) : '';
+      });
+    }
     if (alive) {
       const cds = e.sides[0].manualCd;
       btns.forEach(({ m, mask, num }, i) => {
